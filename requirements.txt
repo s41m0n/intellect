@@ -2,4 +2,4 @@ boto3==1.27.0
 autogluon==0.8.2
 selenium==4.10.0
 bokeh==3.2.0
-matplotlib==3.6.3
+matplotlib==3.7.2
