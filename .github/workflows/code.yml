@@ -1,4 +1,4 @@
-name: Check Linting
+name: Code Linting
 
 on: push
 
@@ -15,10 +15,6 @@ jobs:
         with:
           python-version: '3.9'
       - name: Installing Dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
-      - name: Pycodestyle Check
-        run: pycodestyle scripts
-      - name: Pylint Check
-        run: pylint scripts
+        run: make create-dev
+      - name: Pycodestyle and Pylint Check
+        run: make test-code
