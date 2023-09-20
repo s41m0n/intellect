@@ -46,17 +46,18 @@ axes.grid: False
 axes.grid.axis: y
 axes.facecolor: "ededed"
 grid.alpha : 0.2
+legend.loc: lower left
 
 # Adjust boxplot
 boxplot.patchartist: True
-boxplot.flierprops.color:           black
-boxplot.flierprops.markersize:      1
+boxplot.flierprops.color: black
+boxplot.flierprops.markersize: 1
 boxplot.whiskerprops.color: black
-boxplot.whiskerprops.linewidth:      1
-boxplot.medianprops.color:           black
-boxplot.medianprops.linewidth:      1
-boxplot.capprops.color:           black
-boxplot.capprops.linewidth:      1
-boxplot.boxprops.color:     green
+boxplot.whiskerprops.linewidth: 1
+boxplot.medianprops.color: black
+boxplot.medianprops.linewidth: 1
+boxplot.capprops.color: black
+boxplot.capprops.linewidth: 1
+boxplot.boxprops.color: green
 boxplot.boxprops.linewidth: 1
 boxplot.boxprops.linestyle: -
