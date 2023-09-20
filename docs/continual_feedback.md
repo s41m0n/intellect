@@ -1,3 +1,0 @@
-# Continual Feedback Algorithm
-
-TODO

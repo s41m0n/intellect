@@ -19,20 +19,54 @@ from enum import Enum
 from json import JSONEncoder
 
 import numpy as np
+import torch
+from autogluon.tabular.models.tabular_nn.torch.tabular_nn_torch import \
+    TabularNeuralNetTorchModel
+from autogluon.tabular.predictor import TabularPredictor
+
+SAFE_CPU_PERCENTAGE = 0.7
+DEFAULT_PLOT_STYLE = os.path.join(os.path.dirname(__file__), "presentation.mplstyle")
 
 
-def set_seed():
+def get_default_cpu_number():
+    return round(SAFE_CPU_PERCENTAGE * os.cpu_count())
+
+
+def load_predictor(directory: str):
+    predictor = TabularPredictor.load(
+        directory, verbosity=0, require_version_match=True)
+    assert isinstance(predictor, TabularPredictor)
+    predictor.evaluate_predictions
+    return predictor
+
+
+def load_model_from_predictor(model_dir: str):
+    model_name = os.path.join(
+        os.path.basename(os.path.realpath(os.path.join(model_dir, os.pardir))),
+        os.path.basename(os.path.realpath(model_dir)))
+
+    predictor_dir = os.path.join(model_dir, os.pardir, os.pardir, os.pardir)
+    predictor = load_predictor(predictor_dir)
+    predictor.persist_models(models=[model_name])
+
+    model = predictor._trainer.load_model(model_name=model_name)
+
+    assert isinstance(model, TabularNeuralNetTorchModel)
+    return model, predictor, model_name
+
+
+def set_seed(default=0):
     """Function for setting the seed"""
-    seed = int(os.environ.get("PYTHONHASHSEED", 0))
+    seed = int(os.environ.get("PYTHONHASHSEED", default))
 
     np.random.seed(seed)
     random.seed(seed)
 
     try:
-        import torch
         torch.manual_seed(seed)
     except ModuleNotFoundError:
         pass
+    return seed
 
 
 def create_dir(name: str, overwrite=False):
@@ -56,58 +90,6 @@ def create_dir(name: str, overwrite=False):
             os.makedirs(name)
 
 
-def load_json_data(path: str) -> typing.Dict:
-    """Function to load json file into a dictionary
-
-    Args:
-        path (str): path to the file
-
-    Returns:
-        typing.Dict: the loaded dictionary
-    """
-    with open(path, "r", encoding='utf-8') as f:
-        return json.load(f)
-
-
-def dump_json_data(data: typing.Any, path: str = None) -> str:
-    """Function to dump dictionary or dataclass into json file
-    with the custom encoder.
-
-    Args:
-        data (typing.Any): the data to be dumped.
-        path (str, optional): path to file if also wants to print. Defaults to None.
-
-    Returns:
-        str: dumped data structure as a string
-    """
-    ret = json.dumps(data, indent=2, cls=CDataJSONEncoder)
-    if path is not None:
-        with open(path, 'w', encoding='utf-8') as f:
-            f.write(ret)
-    return ret
-
-
-def safe_division(numerator: typing.Any,
-                  denominator: typing.Any, default: typing.Any = None) -> float:
-    """Function to perform a safe division, meaning no exceptions are thrown
-    in case of a division by 0 or infinite number
-
-    Args:
-        numerator (typing.Any): the numerator of the division
-        denominator (typing.Any): the denominator of the division.
-        default (typing.Any, optional): default value to be returned
-            in case of errors. Defaults to None.
-
-    Returns:
-        float: result of the division
-    """
-
-    ret = np.divide(numerator, denominator)
-    if default is not None:
-        return np.nan_to_num(ret, copy=False, nan=default, posinf=default, neginf=default)
-    return ret
-
-
 def get_logger(name: str, filepath: str = None, log_level: int = logging.INFO) -> logging.Logger:
     """Function to create a logger, or return the existing one"""
     if name not in logging.Logger.manager.loggerDict:
@@ -126,6 +108,33 @@ def get_logger(name: str, filepath: str = None, log_level: int = logging.INFO) -
         handle.setFormatter(formatter)
         logger.addHandler(handle)
     return logger
+
+
+def deep_get_size(obj, seen=None):
+    """Recursively finds size of objects"""
+
+    size = sys.getsizeof(obj)
+    if seen is None:
+        seen = set()
+
+    obj_id = id(obj)
+    if obj_id in seen:
+        return 0
+
+    # Important mark as seen *before* entering recursion to gracefully handle
+    # self-referential objects
+    seen.add(obj_id)
+
+    if isinstance(obj, dict):
+        size += sum([deep_get_size(v, seen) for v in obj.values()])
+        size += sum([deep_get_size(k, seen) for k in obj.keys()])
+    elif hasattr(obj, '__dict__'):
+        size += deep_get_size(obj.__dict__, seen)
+    elif hasattr(obj, '__iter__') and not isinstance(obj, (io.TextIOBase, io.BufferedIOBase, io.RawIOBase,
+                                                           io.IOBase, str, bytes, bytearray)):
+        size += sum([deep_get_size(i, seen) for i in obj])
+
+    return size
 
 
 class CDataJSONEncoder(JSONEncoder):
@@ -275,30 +284,3 @@ class CDataJSONEncoder(JSONEncoder):
                 return o.__dict__
             except AttributeError:
                 return str(o)
-
-
-def deep_get_size(obj, seen=None):
-    """Recursively finds size of objects"""
-
-    size = sys.getsizeof(obj)
-    if seen is None:
-        seen = set()
-
-    obj_id = id(obj)
-    if obj_id in seen:
-        return 0
-
-    # Important mark as seen *before* entering recursion to gracefully handle
-    # self-referential objects
-    seen.add(obj_id)
-
-    if isinstance(obj, dict):
-        size += sum([deep_get_size(v, seen) for v in obj.values()])
-        size += sum([deep_get_size(k, seen) for k in obj.keys()])
-    elif hasattr(obj, '__dict__'):
-        size += deep_get_size(obj.__dict__, seen)
-    elif hasattr(obj, '__iter__') and not isinstance(obj, (io.TextIOBase, io.BufferedIOBase, io.RawIOBase,
-                                                           io.IOBase, str, bytes, bytearray)):
-        size += sum([deep_get_size(i, seen) for i in obj])
-
-    return size

@@ -183,11 +183,12 @@ cython_debug/
 **/*.png
 **/*.svg
 **/*.html
+**/*.txt
+!requirements.txt
 **/output
 **/automl_search
 **/.DS_STORE
-datasets
+data/*
+!data/sample
 logs
-old
-.vscode
-**/*.txt
+bin
