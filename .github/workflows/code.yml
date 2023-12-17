@@ -15,6 +15,6 @@ jobs:
         with:
           python-version: '3.9'
       - name: Installing Dependencies
-        run: make create-dev
+        run: make install-dev
       - name: Pycodestyle and Pylint Check
         run: make test-code

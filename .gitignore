@@ -179,16 +179,21 @@ cython_debug/
 
 # End of https://www.toptal.com/developers/gitignore/api/python,visualstudiocode
 
+**/*output*
 **/*.pdf
 **/*.png
 **/*.svg
 **/*.html
 **/*.txt
-!requirements.txt
-**/output
+**/*.csv
+**/*.pt
 **/automl_search
 **/.DS_STORE
-data/*
-!data/sample
 logs
 bin
+original
+
+data/*
+!/data/CICIDS2017
+!/data/CICIDS2019
+!/data/IOT2020

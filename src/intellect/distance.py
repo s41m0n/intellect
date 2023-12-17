@@ -1,88 +1,6 @@
 import math
-import time
-from typing import Dict, List
 
 import numpy as np
-import pandas as pd
-import torch
-import torch.nn.utils.prune as prune
-from autogluon.tabular.predictor import TabularPredictor
-from autogluon.tabular.models.tabular_nn.torch.tabular_nn_torch import \
-    TabularNeuralNetTorchModel
-from torch import Tensor
-import ast
-from torch.utils.hooks import RemovableHandle
-
-
-def test_model_on_subset(predictor: TabularPredictor, X: pd.DataFrame, y: pd.Series,
-                         model: TabularNeuralNetTorchModel, subset: List[str] = None):
-    if isinstance(model, (list, tuple)):
-        model, subset = model
-
-    if subset is not None:
-        if isinstance(subset, str):
-            subset = ast.literal_eval(subset)
-        X = X.copy(deep=True)
-        X[X.columns.difference(list(subset))] = 0.0
-
-    start = time.time()
-    ypred = model.predict(X)
-    end = time.time()
-
-    if subset is not None:
-        del X
-    scores = predictor.evaluate_predictions(y, pd.Series(ypred), auxiliary_metrics=True, silent=True)
-    scores["time"] = end - start
-    return scores
-
-
-def get_prunable(model: torch.nn.Module):
-    return [m for m in model.modules() if isinstance(m, torch.nn.Linear)]
-
-
-def network_layers_sparsity(refs: torch.nn.Module):
-    single = {}
-    total_weight, total_bias = 0, 0
-    for x in refs:
-        local = (float(torch.sum(x.weight == 0) / x.weight.nelement()),
-                 float(torch.sum(x.bias == 0) / x.bias.nelement()))
-        single[x] = local
-        total_weight += local[0]
-        total_bias += local[1]
-    total_weight /= len(single)
-    total_bias /= len(single)
-    return (total_weight, total_bias), single
-
-
-def get_neurons_activation(model: torch.nn.Module, layers: List[torch.nn.Module], X: pd.DataFrame, n: int):
-    activations: Dict[torch.nn.Module, np.ndarray] = {}
-
-    def get_activation(module: torch.nn.Module, _, output: Tensor):
-        activations[module] = prune._compute_norm(output.detach(), n, 1)
-
-    hooks: List[RemovableHandle] = []
-
-    for lay in layers:
-        hooks.append(lay.register_forward_hook(get_activation))
-
-    model(X)
-
-    for h in hooks:
-        h.remove()
-    return activations
-
-
-def shape_fill_activation_to_size(activations, name="weight"):
-    relevant_importance_scores = {}
-
-    for k, v in activations.items():
-        names_tensor = torch.zeros(0)
-        param = getattr(k, name)
-        for x in v:
-            names_tensor = torch.cat((names_tensor, torch.full((1, param.shape[1]), fill_value=x)), dim=1)
-        names_tensor = names_tensor.reshape(param.shape)
-        relevant_importance_scores[(k, name)] = names_tensor
-    return relevant_importance_scores
 
 
 class CKA(object):
@@ -485,7 +403,7 @@ class CCA:
         """
 
         (sigma_xx, sigma_xy, sigma_yx, sigma_yy,
-         x_idxs, y_idxs) = remove_small(sigma_xx, sigma_xy, sigma_yx, sigma_yy, epsilon)
+         x_idxs, y_idxs) = CCA.remove_small(sigma_xx, sigma_xy, sigma_yx, sigma_yy, epsilon)
 
         numx = sigma_xx.shape[0]  # 100
         numy = sigma_yy.shape[0]  # 50
@@ -494,23 +412,17 @@ class CCA:
             return ([0, 0, 0], [0, 0, 0], np.zeros_like(sigma_xx),
                     np.zeros_like(sigma_yy), x_idxs, y_idxs)
 
-        logger.info("Adding eps to diagonal and taking inverse")
         sigma_xx += epsilon * np.eye(numx)
         sigma_yy += epsilon * np.eye(numy)
         inv_xx = np.linalg.pinv(sigma_xx)  # compute the pseudo-inverse of a matrix
         inv_yy = np.linalg.pinv(sigma_yy)
 
-        logger.info("Taking square root")
-        invsqrt_xx = positivedef_matrix_sqrt(inv_xx)
-        invsqrt_yy = positivedef_matrix_sqrt(inv_yy)
+        invsqrt_xx = CCA.positivedef_matrix_sqrt(inv_xx)
+        invsqrt_yy = CCA.positivedef_matrix_sqrt(inv_yy)
 
-        logger.info("Dot products...")
         arr = np.dot(invsqrt_xx, np.dot(sigma_xy, invsqrt_yy))
 
-        logger.info("Trying to take final svd")
         u, s, v = np.linalg.svd(arr)
-
-        logger.info("Computed everything!")
 
         return [u, np.abs(s), v], invsqrt_xx, invsqrt_yy, x_idxs, y_idxs
 

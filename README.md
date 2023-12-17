@@ -30,5 +30,5 @@ Work in progress.
 
 ## Acknowledgements
 
-@stefano81, @ambrishrawat and @mkpurcell, my mentors from the IBM *Security and Privacy* research unit.
-@doriguzzi and prof. Domenico Siracusa, my coadvison and supervisor and Fondazione Bruno Kessler *RISING* research unit.
+@stefano81, @ambrishrawat and @mkpurcell, my mentors from the *Security and Privacy* unit at *IBM Research Europe*.
+@doriguzzi and prof. Domenico Siracusa, my co-advisor and supervisor from the *RISING* research unit at *Fondazione Bruno Kessler*.
