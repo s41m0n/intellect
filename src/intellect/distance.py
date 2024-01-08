@@ -1,6 +1,36 @@
 import math
 
 import numpy as np
+from river.base import DriftDetector
+from river.drift import ADWIN
+
+from .dataset import Dataset
+
+
+def get_data_drifts(ds_origin: Dataset, ds_target: Dataset, detector: DriftDetector = ADWIN()) -> dict[str, list[int]]:
+    """Function to compute data drifts between each column (feature) of two different datasets.
+
+    Args:
+        ds_origin (Dataset): one dataset
+        ds_target (Dataset): the other dataset
+        detector (DriftDetector, optional): detection method to use. Defaults to ADWIN().
+
+    Returns:
+        dict[str, list[int]]: dictionary with list of drift points for each feature name
+    """
+    feature_drifts = {}
+    for col in ds_origin.X.columns:
+        detector = detector.clone()
+        for row in ds_origin.X[col]:
+            detector.update(row)
+        for i, row in enumerate(ds_target.X[col]):
+            detector.update(row)
+            if detector.drift_detected:
+                if col not in feature_drifts:
+                    feature_drifts[col] = [i]
+                else:
+                    feature_drifts[col].append(i)
+    return feature_drifts
 
 
 class CKA(object):

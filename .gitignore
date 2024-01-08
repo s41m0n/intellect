@@ -186,6 +186,9 @@ cython_debug/
 **/*.html
 **/*.txt
 **/*.csv
+**/*.joblib
+**/*.pkl
+**/*.h5
 **/*.pt
 **/automl_search
 **/.DS_STORE
@@ -193,7 +196,7 @@ logs
 bin
 original
 
-data/*
-!/data/CICIDS2017
-!/data/CICIDS2019
-!/data/IOT2020
+examples/*
+!/examples/CICIDS2017
+!/examples/CICIDS2019
+!/examples/IOT2020

@@ -1,1 +1,1 @@
-VERSION = "1.0"
+VERSION: str = "1.0"  # project version
