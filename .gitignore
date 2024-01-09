@@ -192,11 +192,7 @@ cython_debug/
 **/*.pt
 **/automl_search
 **/.DS_STORE
-logs
+# for local act
 bin
-original
-
-examples/*
-!/examples/CICIDS2017
-!/examples/CICIDS2019
-!/examples/IOT2020
+# for temporary data/debug/log
+datasets

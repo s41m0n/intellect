@@ -1,10 +1,12 @@
+from __future__ import annotations
+
 import re
 from copy import deepcopy
 from enum import Enum
-from typing import Union
 
 import numpy as np
 import pandas as pd
+from pandas.api.types import is_numeric_dtype
 from sklearn.preprocessing import LabelBinarizer
 
 from .io import load
@@ -56,7 +58,7 @@ class Dataset:
     """
 
     def __init__(self, file: str = None, data: pd.DataFrame = None, shuffle: bool = True,
-                 label: str | list = "Label", label_type: str = "Type", **kwargs):
+                 label: str | list = 'Label', label_type: str = 'Type', **kwargs):
         self.X: pd.DataFrame
         self.y: pd.Series | pd.DataFrame
         self._y: pd.Series
@@ -99,7 +101,7 @@ class Dataset:
             y = y.to_numpy()
         return (self.X.iloc[idx].values, y)
 
-    def join(self, other: "Dataset") -> "Dataset":
+    def join(self, other: 'Dataset') -> 'Dataset':
         """Function to join two datasets.
 
         Args:
@@ -116,7 +118,7 @@ class Dataset:
 
     def filter_features(
             self, keep_features: list[str],
-            default: object = None, get_idx: bool = False) -> Union["Dataset", list[int]]:
+            default: object = None, get_idx: bool = False) -> 'Dataset' | list[int]:
         """Function to return a new copy of the dataset with only the provided features.
         The remaining ones can be either completely removed from the dataset (default=None)
         or set to a default value. When get_idx is true, return only the indexes of the provided features/columns.
@@ -132,7 +134,7 @@ class Dataset:
         if get_idx:
             return [i for i, v in enumerate(self.X.columns.values) if v in keep_features]
 
-        ds_tmp: "Dataset" = self.clone()
+        ds_tmp: 'Dataset' = self.clone()
         if default is None:
             ds_tmp.X = ds_tmp.X[ds_tmp.X.columns.intersection(keep_features)]
         else:
@@ -140,7 +142,7 @@ class Dataset:
 
         return ds_tmp
 
-    def filter_categories(self, keep_categories: list[str]) -> "Dataset":
+    def filter_categories(self, keep_categories: list[str]) -> 'Dataset':
         """Function to return a new copy of the dataset with only the provided categories.
 
         Args:
@@ -156,7 +158,7 @@ class Dataset:
         ds_tmp._y = ds_tmp._y.loc[indexes]
         return ds_tmp
 
-    def sample(self, frac: float, by_category: bool = True) -> "Dataset":
+    def sample(self, frac: float, by_category: bool = True) -> 'Dataset':
         """Function to return a new dataset with only a portion of samples.
 
         Args:
@@ -173,7 +175,7 @@ class Dataset:
         ds_tmp = self.clone()
 
         if frac > 1. or frac <= 0.:
-            raise ValueError("Wrong")
+            raise ValueError('Wrong')
 
         if by_category:
             indexes = self._y.groupby(self._y).sample(frac=frac).index.values
@@ -185,7 +187,7 @@ class Dataset:
         ds_tmp._y = ds_tmp._y.loc[indexes]
         return ds_tmp
 
-    def filter_indexes(self, remove_indexes: list[object]) -> "Dataset":
+    def filter_indexes(self, remove_indexes: list[object]) -> 'Dataset':
         """Function to return a new version of the dataset without the provided indexes.
 
         Args:
@@ -200,7 +202,7 @@ class Dataset:
         ds_tmp._y.drop(index=remove_indexes, inplace=True)
         return ds_tmp
 
-    def clone(self) -> "Dataset":
+    def clone(self) -> 'Dataset':
         """Function to clone the current dataset.
 
         Returns:
@@ -266,15 +268,35 @@ class Dataset:
         return self.X.shape[1]
 
 
-def portions_from_data(data: pd.DataFrame | str, ptype: ProblemType = ProblemType.BINARY,
+def min_max_multiple(ds_list: list[pd.DataFrame | str]):
+    num_cols = None
+    minn, maxx = [], []
+
+    for i in range(len(ds_list)):
+        if isinstance(ds_list[i], str):
+            ds_list[i] = load(ds_list[i], index_col=0)
+        if num_cols is None:
+            num_cols = [x for x, v in ds_list[i].dtypes.items() if is_numeric_dtype(v)]
+        minn.append(ds_list[i].min()[num_cols])
+        maxx.append(ds_list[i].max()[num_cols])
+    minn, maxx = pd.DataFrame(minn).min(), pd.DataFrame(maxx).max()
+
+    for x in ds_list:
+        x[num_cols] = (x[num_cols] - minn) / (maxx-minn)
+        yield x
+
+def portions_from_data(data: pd.DataFrame | str, normalize: bool = False,
+                       ptype: ProblemType = ProblemType.BINARY, shuffle: bool = True,
                        benign_labels: list[str] = None, ratios: list[float] = (0.7, 0.1, 0.2)) -> list[Dataset]:
     """Function to split the given dataframe into the provided portions of specified sizes
     and return them as a Dataset class.
 
     Args:
         data (pd.DataFrame | str): the dataframe to be split
+        normalize (bool): whether to normalize data or not. Default to False.
         ptype (ProblemType, optional): type of the problem to convert labels.
             Defaults to ProblemType.BINARY.
+        shuffle (bool, optional): whether to shuffle the obtained portion or not. Default to True.
         benign_labels (list[str], optional): list of benign labels required for binary.
             Defaults to None.
         ratios (list[float], optional): list of ratios for each portion. Defaults to (0.7, 0.1, 0.2).
@@ -290,27 +312,27 @@ def portions_from_data(data: pd.DataFrame | str, ptype: ProblemType = ProblemTyp
     else:
         data = load(data)
 
-    label = data.pop("Label")
-    data = data.astype("float").apply(
-        lambda x: (x - x.min()) / (x.max() - x.min()))
+    if normalize:
+        data = next(min_max_multiple([data]))
 
-    data["Type"] = label
+    label = data.pop('Label')
+    data['Type'] = label
 
     if ptype.value == ProblemType.BINARY.value:
         if not benign_labels:
-            raise ValueError("Specifiy which labels are benign")
-        label = pd.Series(label.apply(lambda x: x not in benign_labels).astype("int"))
+            raise ValueError('Specifiy which labels are benign')
+        label = pd.Series(label.apply(lambda x: x not in benign_labels).astype('int'))
     elif ptype.value == ProblemType.MULTILABEL.value:
         label = pd.Series(pd.factorize(label)[0])
     elif ptype.value == ProblemType.MULTIOUTPUT.value:
         label = pd.DataFrame(LabelBinarizer().fit_transform(label), index=data.index)
 
     ret = []
-    data["Indexes"] = data.index.values
+    data['Indexes'] = data.index.values
 
-    for x in split_per_ratios(data, ratios, label_col="Type"):
-        y = label.loc[x.pop("Indexes").values].reset_index(drop=True)
-        ret.append(Dataset(data=x, shuffle=True, label=y, label_type="Type"))
+    for x in split_per_ratios(data, ratios, label_col='Type'):
+        y = label.loc[x.pop('Indexes').values].reset_index(drop=True)
+        ret.append(Dataset(data=x, shuffle=shuffle, label=y, label_type='Type'))
     return tuple(ret)
 
 
@@ -341,7 +363,7 @@ def remove_non_ascii(text: str) -> str:
 
 
 def balance_classes(df: pd.DataFrame, benign_labels: list[str]) -> pd.DataFrame:
-    """Function to balance samples among benign and malicious ones. 
+    """Function to balance samples among benign and malicious ones.
 
     Args:
         df (pd.DataFrame): the dataframe of origin
@@ -350,10 +372,10 @@ def balance_classes(df: pd.DataFrame, benign_labels: list[str]) -> pd.DataFrame:
     Returns:
         pd.DataFrame: the result of the balancing
     """
-    d_malicious = df["Label"].value_counts()
+    d_malicious = df['Label'].value_counts()
     d_benign = {x: d_malicious.pop(x) for x in benign_labels}
     to_take = min(sum(x for _, x in d_benign.items()), sum(x for _, x in d_malicious.items()))
-    g = df.groupby("Label")
+    g = df.groupby('Label')
     cats = {}
     for d in (d_benign, d_malicious):
         d_sorted = dict(sorted(d.items(), key=lambda x: x[1]))
@@ -365,7 +387,7 @@ def balance_classes(df: pd.DataFrame, benign_labels: list[str]) -> pd.DataFrame:
     return g.apply(lambda x: x.sample(cats[x.name])).reset_index(drop=True)
 
 
-def cols_to_categories(df: pd.DataFrame, label_col="Label") -> pd.DataFrame:
+def cols_to_categories(df: pd.DataFrame, label_col='Label') -> pd.DataFrame:
     """Function to convert non-numeric data into categorical.
 
     Args:
@@ -375,10 +397,10 @@ def cols_to_categories(df: pd.DataFrame, label_col="Label") -> pd.DataFrame:
         pd.DataFrame: the converted dataframe
     """
     cat_columns = [col_name for col_name,
-                   dtype in df.dtypes.items() if dtype.kind in "biufc" and col_name != label_col]
+                   dtype in df.dtypes.items() if dtype.kind in 'biufc' and col_name != label_col]
 
     if cat_columns:
-        print("Converting following categorical to numerical", cat_columns)
+        print('Converting following categorical to numerical', cat_columns)
         df[cat_columns] = df[cat_columns].astype('category')
         df[cat_columns] = df[cat_columns].apply(lambda x: x.cat.codes)
         df[cat_columns] = df[cat_columns].astype('int')
@@ -407,49 +429,57 @@ def load_dataframe_low_memory_balanced(files: list[str], label_col: str, benign_
 
     Args:
         files (list[str]): list of files to be loaded
-        label_col (str): label column 
+        label_col (str): label column
         benign_labels (list[str]): list of labels to be treated as benign
 
     Returns:
-        pd.DataFrame: _description_
+        pd.DataFrame: the resulting dataframe balanced
     """
     ret = []
     for x in files:
         tmp = load(x, usecols=[label_col], skipinitialspace=True)
-        tmp["File"] = x
-        tmp["Indexes"] = tmp.index.values
+        tmp['File'] = x
+        tmp['Indexes'] = tmp.index.values
         ret.append(tmp)
     df = pd.concat(ret)
 
     df = balance_classes(df, benign_labels)
     ret = []
     for x in files:
-        tmp = dict.fromkeys((df[df["File"] == x]["Indexes"] + 1).tolist() + [0])
+        tmp = dict.fromkeys((df[df['File'] == x]['Indexes'] + 1).tolist() + [0])
         ret.append(load(x, index_col=0, skipinitialspace=True, skiprows=lambda x: x not in tmp))
-    return pd.concat(ret, ignore_index=True).drop(columns=["File", "Indexes"])
+    return pd.concat(ret, ignore_index=True).drop(columns=['File', 'Indexes'])
 
 
 def split_per_ratios(df: pd.DataFrame, default: list[float],
-                     label_col: str = "Label", compositions: dict[str, list[str]] = {}) -> list[pd.DataFrame]:
+                     label_col: str = 'Label',
+                     compositions: dict[str, list[str]] = None,
+                     shuffle: bool = True) -> list[pd.DataFrame]:
     """Function to split a dataset into the given portions, keeping proportions between categories.
 
     Args:
         df (pd.DataFrame): the dataset to be split
         default (list[float]): default composition if not available in compositions dictionary.
         label_col (str, optional): column to be used as label for category. Defaults to "Label".
-        compositions (dict[str, list[str]], optional): dict with portions for each category. Defaults to {}.
+        compositions (dict[str, list[str]], optional): dict with portions for each category. Defaults to None.
+        shuffle (bool, optional): whether to shuffle the obtained portion or not. Default to True.
 
     Returns:
         list[pd.DataFrame]: list with the various portions
     """
+    if compositions is None:
+        compositions = {}
     ret = list([] for _ in range(len(default)))
 
     for category in df[label_col].unique():
         composition: tuple = compositions.get(category, default)
-        tmp = df[df[label_col] == category].sample(frac=1.)
+        tmp = df[df[label_col] == category]
+        if shuffle:
+            tmp = tmp.sample(frac=1.)
         composition = (np.cumsum(composition) * len(tmp)).astype(int)
         portions = np.split(tmp, composition, axis=0)
-        [ret[i].append(portions[i]) for i in range(len(default))]
+        for i, v in enumerate(portions[:-1]):
+            ret[i].append(v)
     return [pd.concat(ret[i], axis=0, ignore_index=True) for i in range(len(ret))]
 
 
@@ -475,7 +505,9 @@ def format_dataframe_columns_values(df: pd.DataFrame, target_col: str) -> pd.Dat
     Returns:
         pd.DataFrame: the resulting dataframe
     """
-    return df.copy()[target_col].apply(lambda x: remove_non_ascii(x))
+    df = df.copy()
+    df[target_col] = df[target_col].apply(remove_non_ascii)
+    return df
 
 
 def drop_nan_from_dataset(df: pd.DataFrame) -> pd.DataFrame:
@@ -487,7 +519,7 @@ def drop_nan_from_dataset(df: pd.DataFrame) -> pd.DataFrame:
     Returns:
         pd.DataFrame: the dataframe containing only valid rows
     """
-    return df.replace([np.inf, -np.inf], np.nan).dropna(axis=0, how="any")
+    return df.replace([np.inf, -np.inf], np.nan).dropna(axis=0, how='any')
 
 
 def remove_constant_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -513,7 +545,7 @@ def remove_duplicate_columns(df: pd.DataFrame) -> pd.DataFrame:
         pd.DataFrame: the resulting dataframe with unique columns
     """
     df = df.iloc[:, ~df.columns.duplicated()]
-    return df[df.describe(include="all").T.drop_duplicates().T.columns]
+    return df[df.describe(include='all').T.drop_duplicates().T.columns]
 
 
 def dataset_to_numeric(df: pd.DataFrame) -> pd.DataFrame:

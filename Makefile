@@ -5,19 +5,20 @@ PYTHON=$(VENV)/bin/python3
 PIP=$(VENV)/bin/pip
 ACT="./bin/act"
 
-install: 
+install:
 	@if ! [ -d $(VENV) ]; then\
         python${PYTHON_VERSION} -m venv $(VENV);\
 		$(PIP) install --upgrade pip;\
 	fi
 	$(PIP) install .;\
 
-install-dev: install
-	$(PIP) install --editable ".[test]" 
-	curl -s https://raw.githubusercontent.com/nektos/act/master/install.sh | sudo bash
 
-install-automl: install
-	$(PIP) install --no-deps --editable ".[automl]" 
+install-all: install
+	$(PIP) install --editable ".[dev,book]"
+
+install-dev: install-all
+	pre-commit install
+	curl -s https://raw.githubusercontent.com/nektos/act/master/install.sh | sudo bash
 
 update:
 	$(PIP) install --upgrade .

@@ -7,6 +7,37 @@ from river.drift import ADWIN
 from .dataset import Dataset
 
 
+def vector_to_dict_probs(x: np.ndarray):
+    if x.ndim == 1:
+        a, b = np.unique(x, return_counts=True)
+        b = b / np.sum(b)
+        return dict(zip(a, b))
+
+    if x.ndim == 2:
+        ret = []
+        for j in range(x.shape[1]):
+            a, b = np.unique(x[:, j], return_counts=True)
+            b = b / np.sum(b)
+            ret.append(dict(zip(a, b)))
+        return ret
+
+    raise NotImplementedError()
+
+def distributions_to_probabilities(x, y, only_common=False):
+    o1, o2 = vector_to_dict_probs(x), vector_to_dict_probs(y)
+    if only_common:
+        points = set(o1.keys()).intersection(set(o2.keys()))
+    else:
+        points = set(o1.keys()).union(set(o2.keys()))
+    r1, r2 = [], []
+    for k in points:
+        r1.append(o1.get(k, 0))
+        r2.append(o2.get(k, 0))
+    r1, r2 = np.array(r1), np.array(r2)
+    if only_common:
+        r1, r2 = r1 / np.sum(r1), r2/np.sum(r2)
+    return points, r1, r2
+
 def get_data_drifts(ds_origin: Dataset, ds_target: Dataset, detector: DriftDetector = ADWIN()) -> dict[str, list[int]]:
     """Function to compute data drifts between each column (feature) of two different datasets.
 
@@ -33,7 +64,7 @@ def get_data_drifts(ds_origin: Dataset, ds_target: Dataset, detector: DriftDetec
     return feature_drifts
 
 
-class CKA(object):
+class CKA:
     """Centered Kernel/Linear Alignment
 
     https://github.com/jayroxis/CKA-similarity/blob/main/CKA.ipynb
@@ -171,8 +202,7 @@ class CCA:
 
     def get_cca_similarity(self, acts1, acts2, epsilon=0., threshold=0.98,
                            compute_coefs=True,
-                           compute_dirns=False,
-                           verbose=True):
+                           compute_dirns=False):
         """The main function for computing cca similarities.
 
         This function computes the cca similarity between two sets of activations,
@@ -204,8 +234,6 @@ class CCA:
                                  datasets, may be better to compute these on the fly
                                  instead of store in memory.)
 
-                  verbose: Boolean, whether intermediate outputs are printed
-
         Returns:
                   return_dict: A dictionary with outputs from the cca computations.
                                Contains neuron coefficients (combinations of neurons
@@ -221,8 +249,8 @@ class CCA:
         # acts1.shape[1] == acts2.shape[1]=1000, 1000 data points
         assert acts1.shape[1] == acts2.shape[1], "dimensions don't match"
         # check that acts1, acts2 are transposition
-        assert acts1.shape[0] < acts1.shape[1], ("input must be number of neurons"
-                                                 "by datapoints")
+        assert acts1.shape[0] < acts1.shape[1], ('input must be number of neurons'
+                                                 'by datapoints')
         return_dict = {}
 
         # compute covariance with numpy function for extra stability
@@ -245,8 +273,7 @@ class CCA:
 
         ([u, s, v], invsqrt_xx, invsqrt_yy, x_idxs, y_idxs) = CCA.compute_ccas(sigmaxx, sigmaxy, sigmayx,
                                                                                sigmayy,
-                                                                               epsilon=epsilon,
-                                                                               verbose=verbose)
+                                                                               epsilon=epsilon)
 
         # if x_idxs or y_idxs is all false, return_dict has zero entries
         if (not np.any(x_idxs)) or (not np.any(y_idxs)):
@@ -259,54 +286,54 @@ class CCA:
             x_mask = np.dot(x_idxs.reshape((-1, 1)), x_idxs.reshape((1, -1)))  # x_mask: 100x100, all True
             y_mask = np.dot(y_idxs.reshape((-1, 1)), y_idxs.reshape((1, -1)))  # y_mask: 50x50, all True
 
-            return_dict["coef_x"] = u.T  # shape: [100, 100]
-            return_dict["invsqrt_xx"] = invsqrt_xx
-            return_dict["full_coef_x"] = np.zeros((numx, numx))
-            np.place(return_dict["full_coef_x"], x_mask,
-                     return_dict["coef_x"])
-            return_dict["full_invsqrt_xx"] = np.zeros((numx, numx))
-            np.place(return_dict["full_invsqrt_xx"], x_mask,
-                     return_dict["invsqrt_xx"])
+            return_dict['coef_x'] = u.T  # shape: [100, 100]
+            return_dict['invsqrt_xx'] = invsqrt_xx
+            return_dict['full_coef_x'] = np.zeros((numx, numx))
+            np.place(return_dict['full_coef_x'], x_mask,
+                     return_dict['coef_x'])
+            return_dict['full_invsqrt_xx'] = np.zeros((numx, numx))
+            np.place(return_dict['full_invsqrt_xx'], x_mask,
+                     return_dict['invsqrt_xx'])
 
-            return_dict["coef_y"] = v
-            return_dict["invsqrt_yy"] = invsqrt_yy
-            return_dict["full_coef_y"] = np.zeros((numy, numy))
-            np.place(return_dict["full_coef_y"], y_mask,
-                     return_dict["coef_y"])
-            return_dict["full_invsqrt_yy"] = np.zeros((numy, numy))
-            np.place(return_dict["full_invsqrt_yy"], y_mask,
-                     return_dict["invsqrt_yy"])
+            return_dict['coef_y'] = v
+            return_dict['invsqrt_yy'] = invsqrt_yy
+            return_dict['full_coef_y'] = np.zeros((numy, numy))
+            np.place(return_dict['full_coef_y'], y_mask,
+                     return_dict['coef_y'])
+            return_dict['full_invsqrt_yy'] = np.zeros((numy, numy))
+            np.place(return_dict['full_invsqrt_yy'], y_mask,
+                     return_dict['invsqrt_yy'])
 
             # compute means
             neuron_means1 = np.mean(acts1, axis=1, keepdims=True)
             neuron_means2 = np.mean(acts2, axis=1, keepdims=True)
-            return_dict["neuron_means1"] = neuron_means1
-            return_dict["neuron_means2"] = neuron_means2
+            return_dict['neuron_means1'] = neuron_means1
+            return_dict['neuron_means2'] = neuron_means2
 
         if compute_dirns:  # false here
             # orthonormal directions that are CCA directions
-            cca_dirns1 = np.dot(np.dot(return_dict["full_coef_x"],
-                                       return_dict["full_invsqrt_xx"]),
+            cca_dirns1 = np.dot(np.dot(return_dict['full_coef_x'],
+                                       return_dict['full_invsqrt_xx']),
                                 (acts1 - neuron_means1)) + neuron_means1
-            cca_dirns2 = np.dot(np.dot(return_dict["full_coef_y"],
-                                       return_dict["full_invsqrt_yy"]),
+            cca_dirns2 = np.dot(np.dot(return_dict['full_coef_y'],
+                                       return_dict['full_invsqrt_yy']),
                                 (acts2 - neuron_means2)) + neuron_means2
 
         # get rid of trailing zeros in the cca coefficients
         idx1 = CCA.sum_threshold(s, threshold)
         idx2 = CCA.sum_threshold(s, threshold)
 
-        return_dict["cca_coef1"] = s
-        return_dict["cca_coef2"] = s
-        return_dict["x_idxs"] = x_idxs
-        return_dict["y_idxs"] = y_idxs
+        return_dict['cca_coef1'] = s
+        return_dict['cca_coef2'] = s
+        return_dict['x_idxs'] = x_idxs
+        return_dict['y_idxs'] = y_idxs
         # summary statistics
-        return_dict["mean"] = (np.mean(s[:idx1]), np.mean(s[:idx2]))
-        return_dict["sum"] = (np.sum(s), np.sum(s))
+        return_dict['mean'] = (np.mean(s[:idx1]), np.mean(s[:idx2]))
+        return_dict['sum'] = (np.sum(s), np.sum(s))
 
         if compute_dirns:
-            return_dict["cca_dirns1"] = cca_dirns1
-            return_dict["cca_dirns2"] = cca_dirns2
+            return_dict['cca_dirns1'] = cca_dirns1
+            return_dict['cca_dirns2'] = cca_dirns2
 
         return return_dict
 
@@ -325,16 +352,16 @@ class CCA:
                   return_dict: a dict of appropriately shaped zero entries
         """
         return_dict = {}
-        return_dict["mean"] = (np.asarray(0), np.asarray(0))
-        return_dict["sum"] = (np.asarray(0), np.asarray(0))
-        return_dict["cca_coef1"] = np.asarray(0)
-        return_dict["cca_coef2"] = np.asarray(0)
-        return_dict["idx1"] = 0
-        return_dict["idx2"] = 0
+        return_dict['mean'] = (np.asarray(0), np.asarray(0))
+        return_dict['sum'] = (np.asarray(0), np.asarray(0))
+        return_dict['cca_coef1'] = np.asarray(0)
+        return_dict['cca_coef2'] = np.asarray(0)
+        return_dict['idx1'] = 0
+        return_dict['idx2'] = 0
 
         if compute_dirns:
-            return_dict["cca_dirns1"] = np.zeros((1, dimension))
-            return_dict["cca_dirns2"] = np.zeros((1, dimension))
+            return_dict['cca_dirns1'] = np.zeros((1, dimension))
+            return_dict['cca_dirns2'] = np.zeros((1, dimension))
 
         return return_dict
 
@@ -384,8 +411,8 @@ class CCA:
 
         x_diag = np.abs(np.diagonal(sigma_xx))  # np.diagonal get the diagonal value of the matrix
         y_diag = np.abs(np.diagonal(sigma_yy))
-        x_idxs = (x_diag >= epsilon)  # epsilon=0
-        y_idxs = (y_diag >= epsilon)
+        x_idxs = x_diag >= epsilon  # epsilon=0
+        y_idxs = y_diag >= epsilon
 
         sigma_xx_crop = sigma_xx[x_idxs][:, x_idxs]
         sigma_xy_crop = sigma_xy[x_idxs][:, y_idxs]
@@ -471,8 +498,9 @@ class CCA:
         Returns:
                   i: index at which np.sum(array[:i]) >= threshold
         """
-        assert (threshold >= 0) and (threshold <= 1), "print incorrect threshold"
+        assert 0 <= threshold <= 1, 'print incorrect threshold'
 
         for i in range(len(array)):
             if np.sum(array[:i]) / np.sum(array) >= threshold:
                 return i
+        return None

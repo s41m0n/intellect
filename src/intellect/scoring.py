@@ -1,6 +1,7 @@
 from numbers import Number
 from typing import Callable
 
+import numpy as np
 import pandas as pd
 from river import metrics
 from sklearn.metrics import accuracy_score
@@ -47,7 +48,8 @@ def compute_metric_percategory_on_datasets(
 
 
 def compute_metric_percategory(
-        ytrue: list, ypred: list, labels: pd.Series, scorer: Callable = accuracy_score, also_global: bool = True) -> dict[str, float]:
+        ytrue: list, ypred: list, labels: pd.Series,
+        scorer: Callable = accuracy_score, also_global: bool = True) -> dict[str, float]:
     """Function to compute the metric foreach category available.
 
     Args:
@@ -61,12 +63,19 @@ def compute_metric_percategory(
         dict[str, float]: dictionary with the score for each category.
     """
     ret = {}
-    v_perc = dict(labels.value_counts(normalize=True).items())
+    if isinstance(ytrue, (pd.DataFrame, pd.Series)):
+        ytrue = ytrue.to_numpy()
+    if isinstance(ypred, (pd.DataFrame, pd.Series)):
+        ypred = ypred.to_numpy()
+    if isinstance(labels, (pd.DataFrame, pd.Series)):
+        labels = labels.to_numpy()
+
     if also_global:
-        ret["Global"] = scorer(ytrue, ypred)
-    for k in labels.value_counts().keys():
-        indexes = labels[labels == k].index.values
-        ret[(k, round(v_perc.get(k, 100), 2))] = scorer(ytrue[indexes], ypred[indexes])
+        ret['Global'] = scorer(ytrue, ypred)
+
+    for k in np.unique(labels):
+        indexes = np.where(labels == k)
+        ret[k] = scorer(ytrue[indexes], ypred[indexes])
     return ret
 
 
@@ -90,7 +99,7 @@ def compute_metric_incremental(
 
     metric = metric.clone()
     m = []
-    for i in range(len(ytrue)):
-        metric.update(ytrue[i], ypred[i])
+    for i, v in enumerate(ytrue):
+        metric.update(v, ypred[i])
         m.append(metric.get())
     return m

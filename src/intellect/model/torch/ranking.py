@@ -6,7 +6,8 @@ from ...dataset import Dataset
 from .model import TorchModel
 
 
-def rank_gradient_captum(model: TorchModel, data: Dataset, current_features: list[str] = None, **kwargs) -> dict[str, float]:
+def rank_gradient_captum(model: TorchModel, data: Dataset,
+                         current_features: list[str] = None, **kwargs) -> dict[str, float]:
     """Compute feature importance with integrated gradient method using captum
 
     Args:
@@ -35,7 +36,8 @@ def rank_gradient_captum(model: TorchModel, data: Dataset, current_features: lis
     return dict(zip(current_features, [importances[i] for i in positions]))
 
 
-def rank_perturbation_captum(model: TorchModel, data: Dataset, current_features: list[str] = None, **kwargs) -> dict[str, float]:
+def rank_perturbation_captum(model: TorchModel, data: Dataset,
+                             current_features: list[str] = None, **kwargs) -> dict[str, float]:
     """Compute feature importance with occlusion method using captum
 
     Args:

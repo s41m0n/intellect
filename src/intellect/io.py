@@ -2,7 +2,9 @@ import argparse
 import inspect
 import json
 import logging
+import os
 import pickle
+import signal
 import typing
 from ctypes import Array, Structure
 from ctypes import Union as CUnion
@@ -12,7 +14,7 @@ from datetime import datetime
 from enum import Enum
 from json import JSONEncoder
 from pathlib import Path
-from typing import TypeVar
+from typing import Generator, Iterator, TypeVar
 
 import joblib
 import numpy as np
@@ -32,17 +34,17 @@ def argparse_config(cls: T) -> T:
         T: The configuration class populated.
     """
     parser = argparse.ArgumentParser()
-    subparsers = parser.add_subparsers(dest='command', help="Action to be performed")
+    subparsers = parser.add_subparsers(dest='command', help='Action to be performed')
 
     config_parser = subparsers.add_parser(
-        'run-config', help="Run the script main function with the provided configuration",
-        formatter_class=argparse.RawTextHelpFormatter, epilog="Additional Notes:\n" +
-        "This script accepts either a <.json>, <.yml> or <.yaml> configuration file.\n" +
-        f"Please refer to {cls} as reported below.\n\n" + json.dumps(
+        'run-config', help='Run the script main function with the provided configuration',
+        formatter_class=argparse.RawTextHelpFormatter, epilog='Additional Notes:\n' +
+        'This script accepts either a <.json>, <.yml> or <.yaml> configuration file.\n' +
+        f'Please refer to {cls} as reported below.\n\n' + json.dumps(
             get_annotations(cls),
             cls=CDataJSONEncoder, max_width=20))
 
-    config_parser.add_argument("-c", "--config", type=str, help="Path to Config provided", required=True)
+    config_parser.add_argument('-c', '--config', type=str, help='Path to Config provided', required=True)
     return parser, subparsers
 
 
@@ -64,13 +66,12 @@ def recursive_find_file(path: str, endswith_condition: str) -> str:
     return [x for name in os.listdir(path) for x in recursive_find_file(os.path.join(path, name), endswith_condition)]
 
 
-def dataclass_from_dict(klass: T, d: dict[object, object], raise_err=False) -> T:
+def dataclass_from_dict(klass: T, d: dict[object, object]) -> T:
     """_summary_
 
     Args:
         klass (T): the class to be populated
         d (dict[object, object]): the object to be used for populating the class
-        raise_err (bool, optional): raise errors, if any, when true. Defaults to False.
 
     Returns:
         T: The class populated
@@ -102,14 +103,14 @@ class CDataJSONEncoder(JSONEncoder):
 
     def __init__(self, *args, max_width=120, max_items=15, container_types=(list, tuple, dict), **kwargs):
         # using this class without indentation is pointless
-        if kwargs.get("indent") is None:
-            kwargs.update({"indent": 2})
+        if kwargs.get('indent') is None:
+            kwargs.update({'indent': 2})
         super().__init__(*args, **kwargs)
-        """Container datatypes include primitives or other containers."""
+        # Container datatypes include primitives or other containers.
         self.container_types = container_types
-        """Maximum width of a container that might be put on a single line."""
+        # Maximum width of a container that might be put on a single line.
         self.max_width = max_width
-        """Maximum number of items in container that might be put on single line."""
+        # Maximum number of items in container that might be put on single line.
         self.max_items = max_items
         self.indentation_level = 0
 
@@ -119,31 +120,29 @@ class CDataJSONEncoder(JSONEncoder):
 
         if isinstance(o, (list, tuple)):
             if self._put_on_single_line(o):
-                return "[" + ", ".join(self.encode(el) for el in o) + "]"
-            else:
-                self.indentation_level += 1
-                output = [self.indent_str + self.encode(el) for el in o]
-                self.indentation_level -= 1
-                return "[\n" + ",\n".join(output) + "\n" + self.indent_str + "]"
-        elif isinstance(o, dict):
+                return '[' + ', '.join(self.encode(el) for el in o) + ']'
+            self.indentation_level += 1
+            output = [self.indent_str + self.encode(el) for el in o]
+            self.indentation_level -= 1
+            return '[\n' + ',\n'.join(output) + '\n' + self.indent_str + ']'
+
+        if isinstance(o, dict):
             if o:
                 if self._put_on_single_line(o):
-                    return "{ " + ", ".join(f"{self.encode(k)}: {self.encode(el)}" for k, el in o.items()) + " }"
-                else:
-                    self.indentation_level += 1
-                    output = [
-                        self.indent_str + f"{json.dumps(k)}: {self.encode(v)}" for k, v in o.items()]
-                    self.indentation_level -= 1
-                    return "{\n" + ",\n".join(output) + "\n" + self.indent_str + "}"
-            else:
-                return "{}"
-        elif isinstance(o, str):  # escape newlines
-            o = o.replace("\n", "\\n")
-            return f'"{o}"'
-        else:
-            return json.dumps(o)
+                    return '{ ' + ', '.join(f'{self.encode(k)}: {self.encode(el)}' for k, el in o.items()) + ' }'
+                self.indentation_level += 1
+                output = [
+                    self.indent_str + f'{json.dumps(k)}: {self.encode(v)}' for k, v in o.items()]
+                self.indentation_level -= 1
+                return '{\n' + ',\n'.join(output) + '\n' + self.indent_str + '}'
+            return '{}'
 
-    def iterencode(self, o, **kwargs):
+        if isinstance(o, str):  # escape newlines
+            o = o.replace('\n', '\\n')
+            return f'"{o}"'
+        return json.dumps(o)
+
+    def iterencode(self, o, _one_shot=False):
         """Required to also work with `json.dump`."""
         return self.encode(o)
 
@@ -153,50 +152,50 @@ class CDataJSONEncoder(JSONEncoder):
     def _primitives_only(self, o: typing.Union[list, tuple, dict]):
         if isinstance(o, (list, tuple)):
             return not any(isinstance(el, self.container_types) for el in o)
-        elif isinstance(o, dict):
+        if isinstance(o, dict):
             return not any(isinstance(el, self.container_types) for el in o.values())
+        raise ValueError("Don't Know")
 
     @property
     def indent_str(self) -> str:
         if isinstance(self.indent, int):
-            return " " * (self.indentation_level * self.indent)
-        elif isinstance(self.indent, str):
+            return ' ' * (self.indentation_level * self.indent)
+        if isinstance(self.indent, str):
             return self.indentation_level * self.indent
-        else:
-            raise ValueError(
-                f"indent must either be of type int or str (is: {type(self.indent)})")
+        raise ValueError(
+            f'indent must either be of type int or str (is: {type(self.indent)})')
 
-    def default(self, obj):
-        if inspect.isclass(obj):
-            return str(obj)
+    def default(self, o):
+        if inspect.isclass(o):
+            return str(o)
 
-        if isinstance(obj, (Array, list)):
-            return [self.default(e) for e in obj]
+        if isinstance(o, (Array, list)):
+            return [self.default(e) for e in o]
 
-        if isinstance(obj, _Pointer):
-            return self.default(obj.contents) if obj else None
+        if isinstance(o, _Pointer):
+            return self.default(o.contents) if o else None
 
-        if isinstance(obj, _SimpleCData):
-            return self.default(obj.value)
+        if isinstance(o, _SimpleCData):
+            return self.default(o.value)
 
-        if isinstance(obj, (bool, int, float, str)):
-            return obj
+        if isinstance(o, (bool, int, float, str)):
+            return o
 
-        if obj is None:
-            return obj
+        if o is None:
+            return o
 
-        if isinstance(obj, Enum):
-            return obj.value
+        if isinstance(o, Enum):
+            return o.value
 
-        if isinstance(obj, typing._GenericAlias):
-            return str(obj)
+        if isinstance(o, typing._GenericAlias):
+            return str(o)
 
-        if isinstance(obj, (Structure, CUnion)):
+        if isinstance(o, (Structure, CUnion)):
             result = {}
-            anonymous = getattr(obj, '_anonymous_', [])
+            anonymous = getattr(o, '_anonymous_', [])
 
-            for key, _ in getattr(obj, '_fields_', []):
-                value = getattr(obj, key)
+            for key, _ in getattr(o, '_fields_', []):
+                value = getattr(o, key)
 
                 # private fields don't encode
                 if key.startswith('_'):
@@ -209,34 +208,31 @@ class CDataJSONEncoder(JSONEncoder):
 
             return result
 
-        if is_dataclass(obj):
-            if hasattr(obj, "to_json"):
-                return obj.to_json()
-            else:
-                return {k.name: self.default(getattr(obj, k.name)) for k in fields(obj)}
+        if is_dataclass(o):
+            if hasattr(o, 'to_json'):
+                return o.to_json()
+            return {k.name: self.default(getattr(o, k.name)) for k in fields(o)}
 
-        if isinstance(obj, dict):
-            if obj and not isinstance(next(iter(obj), None), (int, float, str, bool)):
-                return [{'key': self.default(k), 'value': self.default(v)} for k, v in obj.items()]
-            else:
-                return {k: self.default(v) for k, v in obj.items()}
+        if isinstance(o, dict):
+            if o and not isinstance(next(iter(o), None), (int, float, str, bool)):
+                return [{'key': self.default(k), 'value': self.default(v)} for k, v in o.items()]
+            return {k: self.default(v) for k, v in o.items()}
 
-        if isinstance(obj, tuple):
-            if hasattr(obj, "_asdict"):
-                return self.default(obj._asdict())
-            else:
-                return [self.default(e) for e in obj]
+        if isinstance(o, tuple):
+            if hasattr(o, '_asdict'):
+                return self.default(o._asdict())
+            return [self.default(e) for e in o]
 
-        if isinstance(obj, np.ndarray):
-            return obj.tolist()
+        if isinstance(o, np.ndarray):
+            return o.tolist()
 
-        if isinstance(obj, np.integer):
-            return int(obj)
+        if isinstance(o, np.integer):
+            return int(o)
 
-        if isinstance(obj, np.floating):
-            return float(obj)
+        if isinstance(o, np.floating):
+            return float(o)
 
-        return JSONEncoder.default(self, obj)
+        return JSONEncoder.default(self, o)
 
 
 def dump(x: object, filename: str, **kwargs):
@@ -249,33 +245,33 @@ def dump(x: object, filename: str, **kwargs):
     Returns:
         object: The output of the dump
     """
-    if hasattr(x, "save"):
+    if hasattr(x, 'save'):
         return x.save(filename)
 
-    if filename.endswith(".json"):
-        with open(filename, "w") as fp:
+    if filename.endswith('.json'):
+        with open(filename, 'w', encoding='UTF-8') as fp:
             return json.dump(x, fp, cls=CDataJSONEncoder, **kwargs)
 
-    if filename.endswith(".yaml") or filename.endswith(".yml"):
-        with open(filename, "w") as fp:
+    if filename.endswith('.yaml') or filename.endswith('.yml'):
+        with open(filename, 'w', encoding='UTF-8') as fp:
             return yaml.safe_dump(x, fp, **kwargs)
 
-    if filename.endswith(".csv"):
+    if filename.endswith('.csv'):
         return pd.DataFrame(x).to_csv(filename, **kwargs)
 
-    if filename.endswith(".joblib"):
+    if filename.endswith('.joblib'):
         return joblib.dump(x, filename, **kwargs)
 
-    if filename.endswith(".pkl"):
-        with open(filename, "wb") as fp:
+    if filename.endswith('.pkl'):
+        with open(filename, 'wb') as fp:
             return pickle.dump(x, fp)
 
-    if filename.endswith(".h5"):
+    if filename.endswith('.h5'):
         return x.to_hdf(filename, 'data', mode='w')
 
-    filename += ".pkl"
-    print("Dumping using fallback pickle method")
-    with open(filename, "wb") as fp:
+    filename += '.pkl'
+    print('Dumping using fallback pickle method')
+    with open(filename, 'wb') as fp:
         return pickle.dump(x, fp)
 
 
@@ -294,23 +290,23 @@ def load(filename: str, convert_cls=None, **kwargs) -> object:
         object: the loaded object.
     """
     x = None
-    if convert_cls and hasattr(convert_cls, "load"):
+    if convert_cls and hasattr(convert_cls, 'load'):
         return convert_cls.load(filename)
 
-    if filename.endswith(".json"):
-        with open(filename, "r") as fp:
+    if filename.endswith('.json'):
+        with open(filename, 'r', encoding='UTF-8') as fp:
             x = json.load(fp, **kwargs)
-    elif filename.endswith(".yaml") or filename.endswith(".yml"):
-        with open(filename, "r") as fp:
+    elif filename.endswith('.yaml') or filename.endswith('.yml'):
+        with open(filename, 'r', encoding='UTF-8') as fp:
             x = yaml.safe_load(fp, **kwargs)
-    elif filename.endswith(".csv"):
+    elif filename.endswith('.csv'):
         x = pd.read_csv(filename, **kwargs)
-    elif filename.endswith(".pkl"):
-        with open(filename, "rb") as fp:
+    elif filename.endswith('.pkl'):
+        with open(filename, 'rb') as fp:
             x = pickle.load(filename)
-    elif filename.endswith(".joblib"):
+    elif filename.endswith('.joblib'):
         x = joblib.load(filename, **kwargs)
-    elif filename.endswith(".h5"):
+    elif filename.endswith('.h5'):
         x = pd.read_hdf(filename, **kwargs)
     else:
         raise ValueError("Don't know load method")
@@ -331,7 +327,7 @@ def create_dir(name: str):
     if p.absolute() == Path.cwd():
         return
     if p.exists():
-        p.rename(p.name + "_backup" + str(datetime.now()))
+        p.rename(p.name + '_backup' + str(datetime.now()))
     p.mkdir(parents=True, exist_ok=True)
 
 
@@ -356,9 +352,34 @@ def get_logger(name: str, filepath: str = None, log_level: int = logging.INFO) -
     formatter = logging.Formatter(
         '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     if filepath and not any(isinstance(x, logging.FileHandler) for x in logger.handlers):
-        handlers.append(logging.FileHandler(filepath, mode="w"))
+        handlers.append(logging.FileHandler(filepath, mode='w'))
     for handle in handlers:
         handle.setLevel(log_level)
         handle.setFormatter(formatter)
         logger.addHandler(handle)
     return logger
+
+class TimeoutIterator:
+
+    def __init__(self, iterator: Iterator | Generator, time_limit) -> None:
+        if not isinstance(time_limit, int) or time_limit <= 0:
+            raise ValueError(f'Unable to set {time_limit=}')
+        self._iterator = iterator
+        self._time_limit = time_limit
+
+    def __next__(self):
+        try:
+            return next(self._iterator)
+        except (TimeoutError, StopIteration):
+            pass
+
+        signal.alarm(0)
+        raise StopIteration
+
+    def __iter__(self):
+        def handle_timeout(signum, frame):
+            raise TimeoutError()
+
+        signal.signal(signal.SIGALRM, handle_timeout)
+        signal.alarm(self._time_limit)
+        return self

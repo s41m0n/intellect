@@ -2,13 +2,14 @@ import time
 
 import numpy as np
 import torch
-import torch.nn.utils.prune as prune
 from captum.attr import LayerActivation, LayerConductance, NeuronConductance
+from torch.nn.utils import prune
 from tqdm import tqdm
 
 from ...dataset import Dataset
 from .model import TorchModel
-from .ranking import *  # the feature ranking methods are still usable for interpretability
+
+# the feature ranking methods are still usable for interpretability
 
 
 def get_neurons_activation(model: TorchModel, data: Dataset,
@@ -52,9 +53,9 @@ def get_neurons_importance(
     layers = model.prunable if only_prunable else tuple(model.layers.children())
     X = model.safe_cast_input(data.X)
     ret = {}
-    for l in layers:
-        cond = LayerConductance(model, l)
-        ret[l] = np.mean(cond.attribute(X, **kwargs).detach().cpu().numpy(), axis=0)
+    for layer in layers:
+        cond = LayerConductance(model, layer)
+        ret[layer] = np.mean(cond.attribute(X, **kwargs).detach().cpu().numpy(), axis=0)
     model.cpu()
     return ret
 
@@ -109,7 +110,8 @@ def benchmark_forward(model: TorchModel, X: list, times: int, warmup: int) -> li
     return scores
 
 
-def network_layers_sparsity(model: TorchModel, only_prunable: bool = True) -> tuple[float, dict[torch.nn.Module, float]]:
+def network_layers_sparsity(model: TorchModel,
+                            only_prunable: bool = True) -> tuple[float, dict[torch.nn.Module, float]]:
     """Function to compute the model sparsity, hence the ratio of parameters equal to 0.
 
     Args:

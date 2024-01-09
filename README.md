@@ -19,14 +19,11 @@ The project's focus is on leveraging technology and integrated networks to enabl
 
 ## Usage
 
-### Step 0 - Dataset adjust and Feature Selection
-### Step 1 - Create the base reference model
-### Step 2 - Greedy Feature Ranking
-### Step 3 - Stochastic Feature Subsets Search 
-### Step 4 - Base Reference Model Pruning
-### Step 5 - Continual Feedback
-
 Work in progress.
+
+## Cite
+
+Published, waiting for proceeding.
 
 ## Acknowledgements
 

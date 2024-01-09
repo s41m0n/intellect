@@ -65,12 +65,12 @@ def deep_get_size(obj: object, seen=None) -> int:
     seen.add(obj_id)
 
     if isinstance(obj, dict):
-        size += sum([deep_get_size(v, seen) for v in obj.values()])
-        size += sum([deep_get_size(k, seen) for k in obj.keys()])
+        size += sum(deep_get_size(v, seen) for v in obj.values())
+        size += sum(deep_get_size(k, seen) for k in obj.keys())
     elif hasattr(obj, '__dict__'):
         size += deep_get_size(obj.__dict__, seen)
     elif hasattr(obj, '__iter__') and not isinstance(obj, (io.TextIOBase, io.BufferedIOBase, io.RawIOBase,
                                                            io.IOBase, str, bytes, bytearray)):
-        size += sum([deep_get_size(i, seen) for i in obj])
+        size += sum(deep_get_size(i, seen) for i in obj)
 
     return size

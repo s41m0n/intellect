@@ -7,8 +7,6 @@ import numpy as np
 import sklearn
 from numpy import ndarray
 from numpy.random import RandomState
-from pandas.core.api import DataFrame as DataFrame
-from pandas.core.api import Series as Series
 from sklearn.neural_network import MLPClassifier, MLPRegressor
 from sklearn.neural_network._base import (ACTIVATIONS, DERIVATIVES,
                                           LOSS_FUNCTIONS)
@@ -29,21 +27,24 @@ class EnhancedMlp(BaseMultilayerPerceptron, BaseModel):
 
     @abstractmethod
     def _parse_ypred(self, y):
-        pass
+        ...
 
     def __init__(
             self, dropout: float = 0., prune_masks: list[np.ndarray] = None, hidden_layer_sizes=...,
             activation: Literal['relu', 'identity', 'logistic', 'tanh'] = "relu", *,
-            solver: Literal['lbfgs', 'sgd', 'adam'] = "adam", alpha: float = 0.0001, batch_size: int | str = "auto",
-            learning_rate: Literal['constant', 'invscaling', 'adaptive'] = "constant", learning_rate_init: float = 0.001,
-            power_t: float = 0.5, max_iter: int = 200, shuffle: bool = True, random_state: int | RandomState | None = None,
-            tol: float = 0.0001, verbose: bool = False, warm_start: bool = False, momentum: float = 0.9,
-            nesterovs_momentum: bool = True, early_stopping: bool = False, validation_fraction: float = 0.1, beta_1:
-            float = 0.9, beta_2: float = 0.999, epsilon: float = 1e-8, n_iter_no_change: int = 10, max_fun: int = 15000):
+            solver: Literal['lbfgs', 'sgd', 'adam'] = "adam", alpha: float = 0.0001,
+            batch_size: int | str = "auto", learning_rate_init: float = 0.001,
+            learning_rate: Literal['constant', 'invscaling', 'adaptive'] = "constant",
+            power_t: float = 0.5, max_iter: int = 200, loss=None, shuffle: bool = True,
+            random_state: int | RandomState | None = None, tol: float = 0.0001, verbose: bool = False,
+            warm_start: bool = False, momentum: float = 0.9, nesterovs_momentum: bool = True,
+            early_stopping: bool = False, validation_fraction: float = 0.1, beta_1:
+            float = 0.9, beta_2: float = 0.999, epsilon: float = 1e-8, n_iter_no_change: int = 10,
+            max_fun: int = 15000):
         super().__init__(
             hidden_layer_sizes, activation, solver=solver, alpha=alpha, batch_size=batch_size,
             learning_rate=learning_rate, learning_rate_init=learning_rate_init, power_t=power_t, max_iter=max_iter,
-            shuffle=shuffle, random_state=random_state, tol=tol, verbose=verbose, warm_start=warm_start,
+            loss=loss, shuffle=shuffle, random_state=random_state, tol=tol, verbose=verbose, warm_start=warm_start,
             momentum=momentum, nesterovs_momentum=nesterovs_momentum, early_stopping=early_stopping,
             validation_fraction=validation_fraction, beta_1=beta_1, beta_2=beta_2, epsilon=epsilon,
             n_iter_no_change=n_iter_no_change, max_fun=max_fun)
@@ -63,9 +64,9 @@ class EnhancedMlp(BaseMultilayerPerceptron, BaseModel):
             # Create hidden Layer Dropout Masks
             for units in layer_units[1:-1]:
                 # Create inverted Dropout Mask, check for random_state
-                if self.random_state != None:
-                    layer_mask = (self._random_state.random(units) <
-                                  keep_probability).astype(int) / keep_probability
+                if self.random_state is not None:
+                    layer_mask = self._random_state.random(units) < keep_probability
+                    layer_mask = layer_mask.astype(int) / keep_probability
                 else:
                     layer_mask = (np.random.rand(units) < keep_probability).astype(int) / keep_probability
                 dropout_masks.append(layer_mask)
@@ -78,7 +79,7 @@ class EnhancedMlp(BaseMultilayerPerceptron, BaseModel):
         dropout_masks = self._compute_dropout_masks(layer_units)
 
         # Forward propagate
-        activations = self._forward_pass(activations, dropout_masks)
+        activations = self._forward_pass(activations, dropout_masks=dropout_masks)
 
         # Get loss
         loss_func_name = self.loss
@@ -117,15 +118,15 @@ class EnhancedMlp(BaseMultilayerPerceptron, BaseModel):
             )
 
         # Apply Dropout Masks to the Parameter Gradients (DROPOUT ADDITION)
-        if dropout_masks != None:
+        if dropout_masks is not None:
             for layer in range(len(coef_grads) - 1):
                 mask = (~(dropout_masks[layer + 1] == 0)).astype(int)
                 coef_grads[layer] = coef_grads[layer] * mask[None, :]
-                coef_grads[layer + 1] = (coef_grads[layer + 1] * mask.reshape(-1, 1))
+                coef_grads[layer + 1] = coef_grads[layer + 1] * mask.reshape(-1, 1)
                 intercept_grads[layer] = intercept_grads[layer] * mask
         return loss, coef_grads, intercept_grads
 
-    def _forward_pass(self, activations, dropout_masks):
+    def _forward_pass(self, activations, dropout_masks=None):
         hidden_activation = ACTIVATIONS[self.activation]
         for i in range(self.n_layers_ - 1):
             tmp_coef = self.coefs_[i]
@@ -134,7 +135,7 @@ class EnhancedMlp(BaseMultilayerPerceptron, BaseModel):
             activations[i + 1] = safe_sparse_dot(activations[i], tmp_coef)
             activations[i + 1] += self.intercepts_[i]
             if (i + 1) != (self.n_layers_ - 1):
-                if dropout_masks:
+                if dropout_masks is not None:
                     activations[i + 1] = activations[i + 1] * dropout_masks[i + 1][None, :]
                 hidden_activation(activations[i + 1])
         output_activation = ACTIVATIONS[self.out_activation_]
@@ -167,22 +168,23 @@ class EnhancedMlp(BaseMultilayerPerceptron, BaseModel):
             new.copy_prune(self)
         return new
 
-    def copy_prune(self, other: BaseModel, *args, **kwargs):
+    def copy_prune(self, other: BaseModel):
         self.prune_masks = other.prune_masks
 
-    def predict(self, X) -> ndarray:
+    def predict(self, X, *args, **kwargs) -> ndarray:
         return self._parse_ypred(super().predict(X))
 
-    def concept_react(self):
+    def concept_react(self, *args, **kwargs):
         raise NotImplementedError()
 
     def learn(self, *args, **kwargs):
         self.partial_fit(*args, **kwargs)
 
-    def continuous_learning(self):
+    def continuous_learning(self, *args, **kwargs):
         raise NotImplementedError()
 
-    def is_concept_drift(self):
+    @property
+    def is_concept_drift(self, *args, **kwargs):
         raise NotImplementedError()
 
 
@@ -191,7 +193,7 @@ class EnhancedMlpClassifier(EnhancedMlp, MLPClassifier):
     def prunable(self):
         return tuple(i for i in range(len(self.coefs_)))
 
-    def _parse_ypred(self, y, raw=False):
+    def _parse_ypred(self, y):
         return np.argmax(y, axis=1)
 
 
@@ -200,7 +202,7 @@ class EnhancedMlpRegressor(EnhancedMlp, MLPRegressor):
     def prunable(self):
         return tuple(i for i in range(len(self.coefs_)))
 
-    def predict_proba(self, X):
+    def predict_proba(self, X, *args, **kwargs):
         return MLPRegressor.predict(self, X)
 
     def _parse_ypred(self, y):
