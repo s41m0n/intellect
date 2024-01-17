@@ -2,6 +2,8 @@ from abc import ABC, abstractmethod
 
 from river.base import DriftDetector
 
+from ..io import dump, load
+
 
 class BaseModel(ABC):
     """BaseModel class to define methods that should be required by
@@ -111,7 +113,7 @@ class BaseModel(ABC):
         predictions, loss = self.learn(x, y, *args, **kwargs)
         return predictions[0], loss
 
-    def predict_one(self, X: list) -> int:
+    def predict_one(self, X: list, *args, **kwargs) -> int:
         """Function to predict provided sample
 
         Args:
@@ -120,9 +122,9 @@ class BaseModel(ABC):
         Returns:
             int: inferred label
         """
-        return self.predict(X)[0].item()
+        return self.predict(X, *args, **kwargs)[0]
 
-    def predict_proba_one(self, X: list) -> float | list[float]:
+    def predict_proba_one(self, X: list, *args, **kwargs) -> float | list[float]:
         """Function to predict probabilities of a single sample
 
         Args:
@@ -131,4 +133,11 @@ class BaseModel(ABC):
         Returns:
             float: probability/ies
         """
-        return self.predict_proba(X)[0]
+        return self.predict_proba(X, *args, **kwargs)[0]
+
+    def save(self, path):
+        return dump(self, path)
+
+    @classmethod
+    def load(cls, path):
+        return load(path)

@@ -245,9 +245,6 @@ def dump(x: object, filename: str, **kwargs):
     Returns:
         object: The output of the dump
     """
-    if hasattr(x, 'save'):
-        return x.save(filename)
-
     if filename.endswith('.json'):
         with open(filename, 'w', encoding='UTF-8') as fp:
             return json.dump(x, fp, cls=CDataJSONEncoder, **kwargs)
@@ -290,9 +287,6 @@ def load(filename: str, convert_cls=None, **kwargs) -> object:
         object: the loaded object.
     """
     x = None
-    if convert_cls and hasattr(convert_cls, 'load'):
-        return convert_cls.load(filename)
-
     if filename.endswith('.json'):
         with open(filename, 'r', encoding='UTF-8') as fp:
             x = json.load(fp, **kwargs)

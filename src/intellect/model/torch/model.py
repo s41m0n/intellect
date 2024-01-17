@@ -28,6 +28,8 @@ class TorchModel(BaseModel):
         super().__init__(kwargs.get('drift_detector', None))
         self.init_params: dict[str, object] = kwargs
         self.model: torch.nn.Sequential = torch.nn.Sequential()
+        self.optimizer: torch.optim.AdamW = None
+        self.loss_fn: torch.nn.CrossEntropyLoss = None
 
     @abstractmethod
     def _parse_ypred(self, y):
@@ -91,6 +93,7 @@ class TorchModel(BaseModel):
     def safe_cast_input(self, x: torch.Tensor | dict | pd.DataFrame | np.ndarray, is_y=False):
         ret: torch.Tensor = None
         dtype = torch.long if is_y and not self.is_autoencoder else self.xtype
+
         if isinstance(x, torch.Tensor):
             ret = x
         elif isinstance(x, dict):
@@ -102,17 +105,23 @@ class TorchModel(BaseModel):
             ret = torch.from_numpy(x)
         else:
             return torch.tensor([x], dtype=dtype, device=self.device)
-
+        if ret.ndim == 1 and not is_y:
+            ret = ret[None, :]
         return ret.to(self.device, dtype=dtype)
 
     def predict(self, X: torch.Tensor, *args, **kwargs):
-        return self._parse_ypred(self.predict_proba(X))
+        return self._parse_ypred(self.predict_proba(X, *args, **kwargs))
 
     def predict_proba(self, X: torch.Tensor, *args, **kwargs):
+        as_dict = kwargs.get('as_dict', False)
+
         with torch.no_grad():
             y = self.model(self.safe_cast_input(X)).detach()
         if self.model[-1].__class__.__name__ == 'LogSoftmax':
             y = torch.exp(y)
+        y = y.numpy()
+        if as_dict:
+            return [{i: v.item() for i, v in enumerate(j)} for j in y]
         return y
 
     def fit(self, train_dataset: Dataset, validation_dataset: Dataset | float = 0.2, batch_size: int = 256,
@@ -133,7 +142,7 @@ class TorchModel(BaseModel):
             history[f'{metric.__name__}_train'] = []
 
         best_state_dict = deepcopy(self.model.state_dict())
-        optimizer, loss_fn = self.check_optim_loss(optimizer, loss_fn)
+        self.check_optim_loss(optimizer, loss_fn)
 
         if validation_dataset is not None and validation_dataset != 0:
             if isinstance(validation_dataset, float):
@@ -160,7 +169,7 @@ class TorchModel(BaseModel):
                 for _, (inputs, labels) in enumerate(train_loader):
                     if self.is_autoencoder:
                         labels = inputs
-                    predictions, loss = self.learn(inputs, labels, optimizer, loss_fn)
+                    predictions, loss = self.learn(inputs, labels)
                     training_loss += loss
                     training_pred = predictions if training_pred is None else np.concatenate(
                         (training_pred, predictions), axis=0)
@@ -214,7 +223,7 @@ class TorchModel(BaseModel):
             availability: FeatureAvailability = FeatureAvailability.bilateral,
             learn_input=InputForLearn.client, oracle_input=InputForLearn.oracle, drop_ratio=0.,
             optimizer: torch.optim.Optimizer = None, weight_decay: float = 0.,
-            loss_fn: torch.nn.modules.loss._Loss = None, **kwargs):
+            loss_fn: torch.nn.modules.loss._Loss = None, n_verbosity=1, **kwargs):
         if torch.cuda.is_available():
             self.model.cuda()
             if oracle:
@@ -231,7 +240,7 @@ class TorchModel(BaseModel):
             elif availability.value not in (None, FeatureAvailability.bilateral.value):
                 raise NotImplementedError('Daje')
 
-        optimizer, loss_fn = self.check_optim_loss(optimizer, loss_fn, weight_decay=weight_decay)
+        self.check_optim_loss(optimizer, loss_fn, weight_decay=weight_decay)
 
         loader = DataLoader(data, batch_size=batch_size, shuffle=False, num_workers=os.cpu_count(),
                             pin_memory=True, persistent_workers=False)
@@ -268,20 +277,20 @@ class TorchModel(BaseModel):
 
                     if algorithm.value == ContinuouLearningAlgorithm.ground_inferred.value:
                         inferred_labels = oracle.predict(inputs_oracle)
-                        _, loss = self.learn(inputs, inferred_labels, optimizer, loss_fn)
+                        _, loss = self.learn(inputs, inferred_labels)
                     elif algorithm.value == ContinuouLearningAlgorithm.ground_truth.value:
-                        _, loss = self.learn(inputs, true_labels, optimizer, loss_fn)
+                        _, loss = self.learn(inputs, true_labels)
                     elif algorithm.value == ContinuouLearningAlgorithm.knowledge_distillation.value:
                         _, loss = self.learn_knowledge_distillation(
-                            oracle, inputs, inputs_oracle, true_labels, optimizer, loss_fn, **kwargs)
+                            oracle, inputs, inputs_oracle, true_labels, **kwargs)
                     elif algorithm.value == ContinuouLearningAlgorithm.none.value:
                         loss = torch.tensor(np.nan)
-                        _ = self.predict_proba(inputs)
                     else:
                         raise ValueError(f'Unknown algorithm {algorithm} {algorithm.value}')
 
-                    pbar.set_description(f'Batch {ii+1} Epoch {i+1} {loss}', refresh=False)
-                    pbar.update()
+                    if ii % n_verbosity == 0:
+                        pbar.set_description(f'Batch {ii+1} Epoch {i+1} {loss}', refresh=False)
+                        pbar.update(n_verbosity)
 
                 if self.drift_detector is not None:
                     predicted_after = self.predict(inputs)
@@ -293,7 +302,7 @@ class TorchModel(BaseModel):
                             drifts = np.append(drifts, len(y_preds) + j)
                             self.concept_react()
 
-                y_preds = np.concatenate((y_preds, self._parse_ypred(predicted).detach().cpu().numpy()), axis=0)
+                y_preds = np.concatenate((y_preds, self._parse_ypred(predicted)), axis=0)
 
         if torch.cuda.is_available():
             self.model.cpu()
@@ -311,14 +320,17 @@ class TorchModel(BaseModel):
         return tuple(m for m in self.model.children() if isinstance(m, torch.nn.Linear))
 
     def learn_knowledge_distillation(
-            self, oracle: BaseModel, inputs, inputs_oracle, true_labels, optimizer, loss_fn, temperature: int = 2,
+            self, oracle: BaseModel, inputs, inputs_oracle, true_labels, temperature: int = 2,
             alpha: float = 0.25):
+        if self.optimizer is None or self.loss_fn is None:
+            self.check_optim_loss(self.optimizer, self.loss_fn)
+
         inputs = self.safe_cast_input(inputs)
-        teacher_logits = oracle.predict_proba(inputs_oracle)
+        teacher_logits = torch.tensor(oracle.predict_proba(inputs_oracle))
         self.model.train()
-        optimizer.zero_grad()
+        self.optimizer.zero_grad()
         predicted = self.model(inputs)
-        target_loss = loss_fn(predicted, true_labels)
+        target_loss = self.loss_fn(predicted, true_labels)
 
         if self.model[-1].__class__.__name__ == 'LogSoftmax':
             predicted = torch.exp(predicted)
@@ -328,19 +340,21 @@ class TorchModel(BaseModel):
 
         loss = alpha * distill_loss + (1 - alpha) * target_loss
         loss.backward()
-        optimizer.step()
+        self.optimizer.step()
         self.model.eval()
         return predicted.detach(), loss.item()
 
-    def learn(self, x: torch.Tensor, y: torch.Tensor, optimizer: torch.optim.AdamW,
-              loss_fn: torch.nn.CrossEntropyLoss):
+    def learn(self, X: torch.Tensor, y: torch.Tensor):
+        if self.optimizer is None or self.loss_fn is None:
+            self.check_optim_loss(self.optimizer, self.loss_fn)
+
         self.model.train()
-        x, y = self.safe_cast_input(x), self.safe_cast_input(y, is_y=True)
-        optimizer.zero_grad()
-        outputs = self.model(x)
-        loss: torch.Tensor = loss_fn(outputs, y)
+        X, y = self.safe_cast_input(X), self.safe_cast_input(y, is_y=True)
+        self.optimizer.zero_grad()
+        outputs = self.model(X)
+        loss: torch.Tensor = self.loss_fn(outputs, y)
         loss.backward()
-        optimizer.step()
+        self.optimizer.step()
         self.model.eval()
         return outputs.detach(), loss.item()
 
@@ -358,7 +372,8 @@ class TorchModel(BaseModel):
                 loss_fn = torch.nn.MSELoss()
             else:
                 raise ValueError(f'Unknown {self.model[-1].__class__.__name__}')
-        return optimizer, loss_fn
+        self.optimizer = optimizer
+        self.loss_fn = loss_fn
 
     @property
     def is_concept_drift(self):
@@ -404,7 +419,7 @@ class Mlp(TorchModel):
         self.model.add_module('final_layer', torch.nn.Linear(hidden_units, n_outputs, dtype=dtype))
         self.model.add_module('final_act', final_activation(**final_kwargs))
 
-    def _parse_ypred(self, y):
+    def _parse_ypred(self, y: torch.Tensor):
         if y.ndim > 1:
             return np.argmax(y, axis=-1)
         return y

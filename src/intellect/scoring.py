@@ -63,12 +63,9 @@ def compute_metric_percategory(
         dict[str, float]: dictionary with the score for each category.
     """
     ret = {}
-    if isinstance(ytrue, (pd.DataFrame, pd.Series)):
-        ytrue = ytrue.to_numpy()
-    if isinstance(ypred, (pd.DataFrame, pd.Series)):
-        ypred = ypred.to_numpy()
-    if isinstance(labels, (pd.DataFrame, pd.Series)):
-        labels = labels.to_numpy()
+    ytrue = _ensure_type(ytrue)
+    ypred = _ensure_type(ypred)
+    labels = _ensure_type(labels)
 
     if also_global:
         ret['Global'] = scorer(ytrue, ypred)
@@ -91,11 +88,8 @@ def compute_metric_incremental(
     Returns:
         list[float]: list of the metric computed after each point.
     """
-    import torch
-    if isinstance(ytrue, torch.Tensor):
-        ytrue = ytrue.numpy()
-    if isinstance(ypred, torch.Tensor):
-        ypred = ypred.numpy()
+    ytrue = _ensure_type(ytrue)
+    ypred = _ensure_type(ypred)
 
     metric = metric.clone()
     m = []
@@ -103,3 +97,10 @@ def compute_metric_incremental(
         metric.update(v, ypred[i])
         m.append(metric.get())
     return m
+
+def _ensure_type(x):
+    if hasattr(x, 'numpy'):
+        return x.numpy()
+    if hasattr(x, 'to_numpy'):
+        return x.to_numpy()
+    return x

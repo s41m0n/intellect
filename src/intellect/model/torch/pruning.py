@@ -27,7 +27,7 @@ class PruningConstants(Enum):
 
 def _helper_locally(model: TorchModel, prune_ratio: float, n: int = PruningConstants.L1_NORM.value,
                     dim: int = PruningConstants.PRUNE_NEURONS_DIM.value,
-                    structured: bool = False, name: str = "weight", **kwargs) -> TorchModel:
+                    structured: bool = False, name: str = 'weight', **kwargs) -> TorchModel:
     """Helper internal function to perform the desired pruning algorithm.
 
     Args:
@@ -49,7 +49,7 @@ def _helper_locally(model: TorchModel, prune_ratio: float, n: int = PruningConst
         TorchModel: the pruned version of the model
     """
     if len(kwargs):
-        print("Unused", kwargs)
+        print('Unused', kwargs)
     model = model.clone(init=False)
     layers = model.prunable
     # dim=0 prune neuron, dim=1 prune connection.
@@ -62,7 +62,7 @@ def _helper_locally(model: TorchModel, prune_ratio: float, n: int = PruningConst
             for k, v in zip(layers, prune_ratio):
                 prune.ln_structured(k, name, amount=v, n=n, dim=dim)
         else:
-            raise NotImplementedError(f"Norm n {n} not implemented")
+            raise NotImplementedError(f'Norm n {n} not implemented')
     else:
         if n == PruningConstants.RANDOM.value:
             for k, v in zip(layers, prune_ratio):
@@ -71,13 +71,13 @@ def _helper_locally(model: TorchModel, prune_ratio: float, n: int = PruningConst
             for k, v in zip(layers, prune_ratio):
                 prune.l1_unstructured(k, name, v)
         else:
-            raise NotImplementedError(f"Norm n {n} not implemented")
+            raise NotImplementedError(f'Norm n {n} not implemented')
     return model
 
 
 def _helper_locally_structured_neurons_activation(
         model: TorchModel, prune_ratio: float, X: pd.DataFrame, n=PruningConstants.L1_NORM.value,
-        name="weight", **kwargs) -> TorchModel:
+        name='weight', **kwargs) -> TorchModel:
     """Function internal to handle locally structured neuron activations pruning methods
 
     Args:
@@ -91,7 +91,7 @@ def _helper_locally_structured_neurons_activation(
         TorchModel: _description_
     """
     if len(kwargs):
-        print("Unused", kwargs)
+        print('Unused', kwargs)
     model = model.clone(init=False)
 
     activations = get_neurons_activation(model, X, only_prunable=True)
@@ -270,11 +270,11 @@ def _torch_missing_globally_structured(
         TorchModel: _description_
     """
     if not isinstance(parameters, Iterable):
-        raise TypeError("global_unstructured(): parameters is not an Iterable")
+        raise TypeError('global_unstructured(): parameters is not an Iterable')
 
     importance_scores = importance_scores if importance_scores is not None else {}
     if not isinstance(importance_scores, dict):
-        raise TypeError("global_unstructured(): importance_scores must be of type dict")
+        raise TypeError('global_unstructured(): importance_scores must be of type dict')
 
     to_look = int(not dim)
 
@@ -304,19 +304,19 @@ def _torch_missing_globally_structured(
 
     default_mask = torch.cat(
         [
-            tensor_to_shape(getattr(module, name + "_mask", torch.ones_like(getattr(module, name))))
+            tensor_to_shape(getattr(module, name + '_mask', torch.ones_like(getattr(module, name))))
             for (module, name) in parameters
         ], dim
     )
 
     container = prune.PruningContainer()
-    container._tensor_name = "temp"
+    container._tensor_name = 'temp'
     method = pruning_method(prune_ratio, dim=dim, **kwargs)
-    method._tensor_name = "temp"
-    if method.PRUNING_TYPE != "structured":
+    method._tensor_name = 'temp'
+    if method.PRUNING_TYPE != 'structured':
         raise TypeError(
             'Only "structured" PRUNING_TYPE supported for '
-            f"the `pruning_method`. Found method {pruning_method} of type {method.PRUNING_TYPE}")
+            f'the `pruning_method`. Found method {pruning_method} of type {method.PRUNING_TYPE}')
 
     container.add_pruning_method(method)
 
@@ -333,7 +333,7 @@ def _torch_missing_globally_structured(
 
 
 def _helper_globally(model: TorchModel, prune_ratio: float, method=prune.L1Unstructured,
-                     dim=PruningConstants.PRUNE_CONNECTIONS_DIM.value, name="weight", **kwargs) -> TorchModel:
+                     dim=PruningConstants.PRUNE_CONNECTIONS_DIM.value, name='weight', **kwargs) -> TorchModel:
     """Helper function to handle globally pruning methods
 
     Args:
@@ -350,7 +350,7 @@ def _helper_globally(model: TorchModel, prune_ratio: float, method=prune.L1Unstr
     layers = model.prunable
     parameters = {(x, name) for x in layers}
 
-    if method.PRUNING_TYPE == "structured":
+    if method.PRUNING_TYPE == 'structured':
         _torch_missing_globally_structured(parameters, method, prune_ratio, dim=dim, **kwargs)
     prune.global_unstructured(parameters,
                               pruning_method=method,
@@ -359,7 +359,7 @@ def _helper_globally(model: TorchModel, prune_ratio: float, method=prune.L1Unstr
 
 
 def _helper_globally_structured_neurons_activation(model: TorchModel, prune_ratio: float, X: pd.DataFrame,
-                                                   n, name="weight", **kwargs) -> TorchModel:
+                                                   n, name='weight', **kwargs) -> TorchModel:
     """Helper internal function for handling global structured neurons activation pruning methods.
 
     Args:
@@ -376,8 +376,9 @@ def _helper_globally_structured_neurons_activation(model: TorchModel, prune_rati
 
     activations = model.get_neurons_activation(layers, X, n, shape_fill=name)
 
-    return _helper_globally(model, layers, prune_ratio, method=prune.LnStructured,
-                            dim=PruningConstants.PRUNE_NEURONS_DIM.value, n=n, importance_scores=activations, **kwargs)
+    return _helper_globally(model, prune_ratio, method=prune.LnStructured,
+                            dim=PruningConstants.PRUNE_NEURONS_DIM.value, n=n,
+                            importance_scores=activations, **kwargs)
 
 
 def globally_structured_neurons_l1(model: TorchModel, prune_ratio: float, **kwargs) -> TorchModel:

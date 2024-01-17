@@ -179,19 +179,20 @@ cython_debug/
 
 # End of https://www.toptal.com/developers/gitignore/api/python,visualstudiocode
 
-**/*output*
-**/*.pdf
-**/*.png
-**/*.svg
-**/*.html
-**/*.txt
-**/*.csv
-**/*.joblib
-**/*.pkl
-**/*.h5
-**/*.pt
-**/automl_search
-**/.DS_STORE
+*output*
+*.pdf
+*.png
+*.svg
+*.html
+*.txt
+*.csv
+*.joblib
+*.pkl
+*.h5
+*.pt
+*.DS_STORE
+*.DS_Store
+
 # for local act
 bin
 # for temporary data/debug/log
