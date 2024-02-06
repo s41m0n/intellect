@@ -1,3 +1,6 @@
+"""
+Module containing utility functions for pruning torch-based previously defined neural networks.
+"""
 from collections.abc import Iterable
 from enum import Enum
 
@@ -352,9 +355,10 @@ def _helper_globally(model: TorchModel, prune_ratio: float, method=prune.L1Unstr
 
     if method.PRUNING_TYPE == 'structured':
         _torch_missing_globally_structured(parameters, method, prune_ratio, dim=dim, **kwargs)
-    prune.global_unstructured(parameters,
-                              pruning_method=method,
-                              amount=prune_ratio)
+    else:
+        prune.global_unstructured(parameters,
+                                  pruning_method=method,
+                                  amount=prune_ratio)
     return model
 
 

@@ -1,3 +1,6 @@
+"""
+Module providing compatibility for river Ensembles jointly with local defined models.
+"""
 from river.base import Ensemble
 
 from ..dataset import Dataset
@@ -5,12 +8,14 @@ from .base import BaseModel
 
 
 class WrapRiverEnsemble(BaseModel):
+    """Wrapper for the ensemble class when using a local model (e.g., torch.model.Mlp)
+    with a river Ensemble. This class adds few methods to make it compatible and usable.
+    Note that this is experimental, few functionalities might not work as they are not implemented.
+    """
+
     def __init__(self, cls: Ensemble, *args, **kwargs):
         super().__init__()
         self.item: Ensemble = cls(*args, **kwargs)
-
-    def continuous_learning(self,):
-        self.item.learn_one()
 
     def learn(self, X: list, y: list, *args, **kwargs) -> tuple[list[float], float]:
         for x, l in zip(X, y):

@@ -1,8 +1,12 @@
+"""
+Module containing all definitions and utility functions concerning the dataset.
+"""
 from __future__ import annotations
 
 import re
 from copy import deepcopy
 from enum import Enum
+from typing import Generator
 
 import numpy as np
 import pandas as pd
@@ -21,24 +25,23 @@ class ProblemType(Enum):
 
 class FeatureAvailability(Enum):
     """Enumeration to select Availability of features in continuous learning"""
-    bilateral = 0
-    none = 1
-    client = 2
-    oracle = 3
+    none = 0
+    oracle = 1
+    bilateral = 2
 
 
 class InputForLearn(Enum):
     """Enumeration to select the input type a model should use while doing continuous learning"""
     client = 0
     oracle = 1
+    mixed = 2
 
 
 class ContinuouLearningAlgorithm(Enum):
     """Enumeration to select the continuous learning algorithm type"""
-    none = 0
-    knowledge_distillation = 1
-    ground_inferred = 3
-    ground_truth = 5
+    knowledge_distillation = 0
+    ground_inferred = 1
+    ground_truth = 2
 
 
 class Dataset:
@@ -58,7 +61,7 @@ class Dataset:
     """
 
     def __init__(self, file: str = None, data: pd.DataFrame = None, shuffle: bool = True,
-                 label: str | list = 'Label', label_type: str = 'Type', **kwargs):
+                 label: str | list = 'Label', label_type: str | list = 'Type', **kwargs):
         self.X: pd.DataFrame
         self.y: pd.Series | pd.DataFrame
         self._y: pd.Series
@@ -70,14 +73,14 @@ class Dataset:
             self.y = self.X.pop(label)
         else:
             self.y = label
-        self.X.reset_index(drop=True, inplace=True)
-        if shuffle:
-            self.X = self.X.sample(frac=1)
-            self.y = self.y[self.X.index.values]
         if isinstance(label_type, str):
             self._y = self.X.pop(label_type)
         else:
             self._y = label_type
+        if shuffle:
+            self.X = self.X.sample(frac=1)
+            self.y = self.y[self.X.index.values]
+            self._y = self._y[self.X.index.values]
 
     def __len__(self) -> int:
         """Function to return the length of the dataset.
@@ -99,7 +102,18 @@ class Dataset:
         y = self.y.iloc[idx]
         if isinstance(y, pd.Series):
             y = y.to_numpy()
-        return (self.X.iloc[idx].values, y)
+        _y = self._y.iloc[idx]
+        if isinstance(_y, pd.Series):
+            _y = _y.to_numpy()
+        return (self.X.iloc[idx].values, y, _y)
+
+    def shuffle(self):
+        """Function to shuffle the dataset in place.
+        """
+        p = np.random.permutation(self.n_samples)
+        self.X = self.X.iloc[p]
+        self.y = self.y.iloc[p]
+        self._y = self._y.iloc[p]
 
     def join(self, other: 'Dataset') -> 'Dataset':
         """Function to join two datasets.
@@ -118,21 +132,23 @@ class Dataset:
 
     def filter_features(
             self, keep_features: list[str],
-            default: object = None, get_idx: bool = False) -> 'Dataset' | list[int]:
+            default: object = 0., get_removal_idx: bool = False) -> 'Dataset' | list[int]:
         """Function to return a new copy of the dataset with only the provided features.
         The remaining ones can be either completely removed from the dataset (default=None)
-        or set to a default value. When get_idx is true, return only the indexes of the provided features/columns.
+        or set to a default value. When get_removal_idx is true, return only the indexes
+        of the provided features/columns.
 
         Args:
             keep_features (list[str]): list of features to keep
             default (object, optional): default value to be set. Defaults to None.
-            get_idx (bool, optional): true when returnin only the feature positions. Defaults to False.
+            get_removal_idx (bool, optional): true when returnin only the inactive feature positions.
+                Defaults to False.
 
         Returns:
             Dataset | list[int]: the new dataset or just the list of feature positions
         """
-        if get_idx:
-            return [i for i, v in enumerate(self.X.columns.values) if v in keep_features]
+        if get_removal_idx:
+            return [i for i, v in enumerate(self.X.columns.values) if v not in keep_features]
 
         ds_tmp: 'Dataset' = self.clone()
         if default is None:
@@ -152,13 +168,26 @@ class Dataset:
             Dataset: new dataset with only the provided categories
         """
         ds_tmp = self.clone()
+        if keep_categories is None or len(keep_categories) == 0:
+            return ds_tmp
+
         indexes = ds_tmp._y[ds_tmp._y.isin(keep_categories)].index.values
         ds_tmp.X = ds_tmp.X.loc[indexes]
         ds_tmp.y = ds_tmp.y.loc[indexes]
         ds_tmp._y = ds_tmp._y.loc[indexes]
         return ds_tmp
 
-    def sample(self, frac: float, by_category: bool = True) -> 'Dataset':
+    def balance_categories(self) -> 'Dataset':
+        """Function to return a copy of the dataset with a balanced number of samples between
+        the traffic categories.
+
+        Returns:
+            Dataset: a copy of the dataset with balanced samples.
+        """
+        minn = self._y.value_counts().sort_values(ascending=True).iloc[0]
+        return self.sample(minn, by_category=True)
+
+    def sample(self, frac_or_n: int | float, by_category: bool = True) -> 'Dataset':
         """Function to return a new dataset with only a portion of samples.
 
         Args:
@@ -174,14 +203,17 @@ class Dataset:
         """
         ds_tmp = self.clone()
 
-        if frac > 1. or frac <= 0.:
-            raise ValueError('Wrong')
+        if frac_or_n >= 1.:
+            kwargs = {'n': frac_or_n}
+        else:
+            kwargs = {'frac': frac_or_n}
 
         if by_category:
-            indexes = self._y.groupby(self._y).sample(frac=frac).index.values
+            indexes = self._y.groupby(self._y).sample(**kwargs).index.values
         else:
-            indexes = ds_tmp.X.sample(frac=frac).index.values
+            indexes = ds_tmp.X.sample(**kwargs).index.values
 
+        np.random.shuffle(indexes)
         ds_tmp.X = ds_tmp.X.loc[indexes]
         ds_tmp.y = ds_tmp.y.loc[indexes]
         ds_tmp._y = ds_tmp._y.loc[indexes]
@@ -267,18 +299,36 @@ class Dataset:
         """
         return self.X.shape[1]
 
+    @property
+    def shape(self) -> tuple[int]:
+        """Property to return the shape of the input in the dataset.
 
-def min_max_multiple(ds_list: list[pd.DataFrame | str]):
+        Returns:
+            tuple[int]: the shape of the input
+        """
+        return self.X.shape
+
+
+def min_max_multiple(ds_list: list[pd.DataFrame | str]) -> Generator[Dataset]:
+    """Function that normalizes the provided datasets and returns them.
+    Useful when dealing with different datasets saved separately (e.g., train and test).
+
+    Args:
+        ds_list (list[pd.DataFrame | str]): list of datasets, as strings or Dataset objects.
+
+    Yields:
+        Generator[Dataset]: the normalized datasets.
+    """
     num_cols = None
     minn, maxx = [], []
 
-    for i in range(len(ds_list)):
-        if isinstance(ds_list[i], str):
-            ds_list[i] = load(ds_list[i], index_col=0)
+    for i, v in enumerate(ds_list):
+        if isinstance(v, str):
+            ds_list[i] = v = load(v, index_col=0)
         if num_cols is None:
-            num_cols = [x for x, v in ds_list[i].dtypes.items() if is_numeric_dtype(v)]
-        minn.append(ds_list[i].min()[num_cols])
-        maxx.append(ds_list[i].max()[num_cols])
+            num_cols = [x for x, v in v.dtypes.items() if is_numeric_dtype(v)]
+        minn.append(v.min()[num_cols])
+        maxx.append(v.max()[num_cols])
     minn, maxx = pd.DataFrame(minn).min(), pd.DataFrame(maxx).max()
 
     for x in ds_list:
@@ -321,9 +371,9 @@ def portions_from_data(data: pd.DataFrame | str, normalize: bool = False,
     if ptype.value == ProblemType.BINARY.value:
         if not benign_labels:
             raise ValueError('Specifiy which labels are benign')
-        label = pd.Series(label.apply(lambda x: x not in benign_labels).astype('int'))
+        label = pd.Series(label.apply(lambda x: x not in benign_labels).astype('int'), index=data.index)
     elif ptype.value == ProblemType.MULTILABEL.value:
-        label = pd.Series(pd.factorize(label)[0])
+        label = pd.Series(pd.factorize(label)[0], index=data.index)
     elif ptype.value == ProblemType.MULTIOUTPUT.value:
         label = pd.DataFrame(LabelBinarizer().fit_transform(label), index=data.index)
 
@@ -446,8 +496,8 @@ def load_dataframe_low_memory_balanced(files: list[str], label_col: str, benign_
     df = balance_classes(df, benign_labels)
     ret = []
     for x in files:
-        tmp = dict.fromkeys((df[df['File'] == x]['Indexes'] + 1).tolist() + [0])
-        ret.append(load(x, index_col=0, skipinitialspace=True, skiprows=lambda x: x not in tmp))
+        ret.append(load(x, index_col=0, skipinitialspace=True,
+                        skiprows=lambda x: x not in dict.fromkeys((df[df['File'] == x]['Indexes'] + 1).tolist() + [0])))
     return pd.concat(ret, ignore_index=True).drop(columns=['File', 'Indexes'])
 
 
@@ -477,9 +527,9 @@ def split_per_ratios(df: pd.DataFrame, default: list[float],
         if shuffle:
             tmp = tmp.sample(frac=1.)
         composition = (np.cumsum(composition) * len(tmp)).astype(int)
-        portions = np.split(tmp, composition, axis=0)
+        portions = np.split(tmp.index.values, composition, axis=0)
         for i, v in enumerate(portions[:-1]):
-            ret[i].append(v)
+            ret[i].append(tmp.loc[v])
     return [pd.concat(ret[i], axis=0, ignore_index=True) for i in range(len(ret))]
 
 
@@ -571,3 +621,30 @@ def coerc_dataframe_to_type(df: pd.DataFrame, dtype: str) -> pd.DataFrame:
         pd.DataFrame: the converted dataframe
     """
     return df.astype(dtype)
+
+def indexes_for_oracle_learning(data: Dataset, features_available: list[str],
+                                availability: FeatureAvailability) -> tuple[np.ndarray, np.ndarray]:
+    """Function to compute the indexes of the features to be set to zero, both for the student and
+    teacher model (oracle).
+
+    Args:
+        data (Dataset): data to be accounted.
+        features_available (list[str]): list of features to be potentially removed.
+        availability (FeatureAvailability): enum describing the availability of data.
+
+    Raises:
+        NotImplementedError: when receiving a non-defined value
+
+    Returns:
+        tuple[np.ndarray, np.ndarray]: tuple containing list of indexes for the student model, and
+            list of indexes for the oracle model.
+    """
+    idx, idx_oracle = [], []
+    if features_available is not None and len(features_available):
+        if availability.value == FeatureAvailability.oracle.value:
+            idx = data.filter_features(features_available, get_removal_idx=True)
+        elif availability.value == FeatureAvailability.none.value:
+            idx = idx_oracle = data.filter_features(features_available, get_removal_idx=True)
+        elif availability.value != FeatureAvailability.bilateral.value:
+            raise NotImplementedError('Daje')
+    return idx, idx_oracle

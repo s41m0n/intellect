@@ -1,3 +1,7 @@
+"""
+Module definining the enhanced version of sklearn multilayer perceptron neural
+networks with additional support to the dropout and pruning methodologies.
+"""
 from abc import abstractmethod
 from copy import deepcopy
 from numbers import Real
@@ -19,10 +23,15 @@ from ..base import BaseModel
 
 
 class EnhancedMlp(BaseMultilayerPerceptron, BaseModel):
+    """Enhanced version of sklearn multilayer perceptron, with additional
+    support to dropout and pruning techniques. This is an experimental
+    class, some of the base functionalities are not implemented yet.
+    """
+
     _parameter_constraints: dict = {
         **BaseMultilayerPerceptron._parameter_constraints,
-        "dropout": [Interval(Real, 0, 1, closed="left")],
-        "prune_masks": [np.ndarray, list, None]
+        'dropout': [Interval(Real, 0, 1, closed='left')],
+        'prune_masks': [np.ndarray, list, None]
     }
 
     @abstractmethod
@@ -31,10 +40,10 @@ class EnhancedMlp(BaseMultilayerPerceptron, BaseModel):
 
     def __init__(
             self, dropout: float = 0., prune_masks: list[np.ndarray] = None, hidden_layer_sizes=...,
-            activation: Literal['relu', 'identity', 'logistic', 'tanh'] = "relu", *,
-            solver: Literal['lbfgs', 'sgd', 'adam'] = "adam", alpha: float = 0.0001,
-            batch_size: int | str = "auto", learning_rate_init: float = 0.001,
-            learning_rate: Literal['constant', 'invscaling', 'adaptive'] = "constant",
+            activation: Literal['relu', 'identity', 'logistic', 'tanh'] = 'relu', *,
+            solver: Literal['lbfgs', 'sgd', 'adam'] = 'adam', alpha: float = 0.0001,
+            batch_size: int | str = 'auto', learning_rate_init: float = 0.001,
+            learning_rate: Literal['constant', 'invscaling', 'adaptive'] = 'constant',
             power_t: float = 0.5, max_iter: int = 200, loss=None, shuffle: bool = True,
             random_state: int | RandomState | None = None, tol: float = 0.0001, verbose: bool = False,
             warm_start: bool = False, momentum: float = 0.9, nesterovs_momentum: bool = True,
@@ -83,8 +92,8 @@ class EnhancedMlp(BaseMultilayerPerceptron, BaseModel):
 
         # Get loss
         loss_func_name = self.loss
-        if loss_func_name == "log_loss" and self.out_activation_ == "logistic":
-            loss_func_name = "binary_log_loss"
+        if loss_func_name == 'log_loss' and self.out_activation_ == 'logistic':
+            loss_func_name = 'binary_log_loss'
         loss = LOSS_FUNCTIONS[loss_func_name](y, activations[-1])
         # Add L2 regularization term to loss
         values = 0
@@ -144,7 +153,7 @@ class EnhancedMlp(BaseMultilayerPerceptron, BaseModel):
 
     def _forward_pass_fast(self, X, check_input=True):
         if check_input:
-            X = self._validate_data(X, accept_sparse=["csr", "csc"], reset=False)
+            X = self._validate_data(X, accept_sparse=['csr', 'csc'], reset=False)
         activation = X
         hidden_activation = ACTIVATIONS[self.activation]
         for i in range(self.n_layers_ - 1):
@@ -169,6 +178,11 @@ class EnhancedMlp(BaseMultilayerPerceptron, BaseModel):
         return new
 
     def copy_prune(self, other: BaseModel):
+        """Function to copy the pruning mask of the provided model into the current one.
+
+        Args:
+            other (BaseModel): model to copy the prune mask from.
+        """
         self.prune_masks = other.prune_masks
 
     def predict(self, X, *args, **kwargs) -> ndarray:
@@ -189,6 +203,9 @@ class EnhancedMlp(BaseMultilayerPerceptron, BaseModel):
 
 
 class EnhancedMlpClassifier(EnhancedMlp, MLPClassifier):
+    """Enhanced version of sklearn classifier neural network, with pruning
+    techniques and dropout implemented.
+    """
     @property
     def prunable(self):
         return tuple(i for i in range(len(self.coefs_)))
@@ -198,6 +215,9 @@ class EnhancedMlpClassifier(EnhancedMlp, MLPClassifier):
 
 
 class EnhancedMlpRegressor(EnhancedMlp, MLPRegressor):
+    """Enhanced version of sklearn regressor neural network, with pruning
+    techniques and dropout implemented.
+    """
     @property
     def prunable(self):
         return tuple(i for i in range(len(self.coefs_)))

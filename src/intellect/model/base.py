@@ -1,4 +1,9 @@
+"""
+Module definining base properties, attributes and methods of a model compatible with the
+INTELLECT pipeline, meaning ranking/pruning/learning techniques.
+"""
 from abc import ABC, abstractmethod
+from typing import Any
 
 from river.base import DriftDetector
 
@@ -135,9 +140,25 @@ class BaseModel(ABC):
         """
         return self.predict_proba(X, *args, **kwargs)[0]
 
-    def save(self, path):
+    def save(self, path: str) -> Any:
+        """Function to dump to file the current model.
+
+        Args:
+            path (str): the path of the file
+
+        Returns:
+            Any: the result of the dump procedure, usually None.
+        """
         return dump(self, path)
 
     @classmethod
-    def load(cls, path):
+    def load(cls, path: str) -> 'BaseModel':
+        """Function to load from a given path the model.
+
+        Args:
+            path (str): path where the model is stored
+
+        Returns:
+            BaseModel: an instance of the model loaded
+        """
         return load(path)

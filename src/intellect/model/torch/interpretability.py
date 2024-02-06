@@ -1,3 +1,6 @@
+"""
+Module to provide utility functions for debugging/inspecting previously defined neural networks.
+"""
 import time
 
 import numpy as np
@@ -130,8 +133,8 @@ def network_layers_sparsity(model: TorchModel,
         local = 0
         for name, p in x.named_parameters():
             data = p.data
-            if name.endswith("_orig"):
-                name = name.replace("_orig", "_mask")
+            if name.endswith('_orig'):
+                name = name.replace('_orig', '_mask')
                 data = data * getattr(x, name).data
             local += float(torch.sum(data == 0.) / p.data.nelement())
         single[x] = local

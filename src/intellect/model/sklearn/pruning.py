@@ -1,3 +1,6 @@
+"""
+Module containing utility functions for pruning sklearn defined neural networks.
+"""
 import numpy as np
 from sklearn.utils.validation import check_is_fitted
 
@@ -50,7 +53,7 @@ def prune_unstructured_connections_l1(model: EnhancedMlp, prune_ratio: float) ->
     Returns:
         EnhancedMlp: the pruned model
     """
-    check_is_fitted(model, msg="Model not fitted, fit before pruning")
+    check_is_fitted(model, msg='Model not fitted, fit before pruning')
     new_model = model.clone(init=False)
     new_model.prune_masks = [np.ones_like(k) for k in new_model.coefs_]
     all_weights = np.concatenate([np.asarray(c).reshape(-1) for c in new_model.coefs_], axis=0)

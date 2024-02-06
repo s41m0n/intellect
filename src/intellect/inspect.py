@@ -1,3 +1,7 @@
+"""
+Module with utility functions for reproducibility (seeds) and inspecting the status
+of the objects and system.
+"""
 import io
 import os
 import random
@@ -16,7 +20,7 @@ def set_seed(default=42) -> float:
     Returns:
         float: the seed set.
     """
-    seed = int(os.environ.get("PYTHONHASHSEED", default))
+    seed = int(os.environ.get('PYTHONHASHSEED', default))
 
     np.random.seed(seed)
     random.seed(seed)
@@ -36,9 +40,9 @@ def memory_stats() -> dict[str, object]:
         dict[str, object]: dictionary with specifics
     """
     import torch
-    return {"RAM": psutil.virtual_memory()._asdict(),
-            "SWAP": psutil.swap_memory()._asdict(),
-            "CUDA": torch.cuda.memory_stats() if torch.cuda.is_available() else {}}
+    return {'RAM': psutil.virtual_memory()._asdict(),
+            'SWAP': psutil.swap_memory()._asdict(),
+            'CUDA': torch.cuda.memory_stats() if torch.cuda.is_available() else {}}
 
 
 def deep_get_size(obj: object, seen=None) -> int:

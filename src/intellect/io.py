@@ -1,3 +1,6 @@
+"""
+Module with utility functions for I/O load, dump, convert objects.
+"""
 import argparse
 import inspect
 import json
@@ -158,6 +161,14 @@ class CDataJSONEncoder(JSONEncoder):
 
     @property
     def indent_str(self) -> str:
+        """Property to return the current string indented.
+
+        Raises:
+            ValueError: when indent is not an integer or string value
+
+        Returns:
+            str: the indented string
+        """
         if isinstance(self.indent, int):
             return ' ' * (self.indentation_level * self.indent)
         if isinstance(self.indent, str):
@@ -266,6 +277,10 @@ def dump(x: object, filename: str, **kwargs):
     if filename.endswith('.h5'):
         return x.to_hdf(filename, 'data', mode='w')
 
+    if filename.endswith(('.txt', '.info')):
+        with open(filename, 'w', encoding='UTF-8') as fp:
+            return fp.write(x)
+
     filename += '.pkl'
     print('Dumping using fallback pickle method')
     with open(filename, 'wb') as fp:
@@ -302,6 +317,9 @@ def load(filename: str, convert_cls=None, **kwargs) -> object:
         x = joblib.load(filename, **kwargs)
     elif filename.endswith('.h5'):
         x = pd.read_hdf(filename, **kwargs)
+    elif filename.endswith(('.info', '.txt')):
+        with open(filename, 'r', encoding='UTF-8') as fp:
+            x = fp.read()
     else:
         raise ValueError("Don't know load method")
 
@@ -321,7 +339,10 @@ def create_dir(name: str):
     if p.absolute() == Path.cwd():
         return
     if p.exists():
-        p.rename(p.name + '_backup' + str(datetime.now()))
+        tmp = str(p.absolute())
+        if tmp[-1] == '/':
+            tmp = tmp[:-1]
+        p.rename(tmp + '_backup' + str(datetime.now()))
     p.mkdir(parents=True, exist_ok=True)
 
 
@@ -354,6 +375,8 @@ def get_logger(name: str, filepath: str = None, log_level: int = logging.INFO) -
     return logger
 
 class TimeoutIterator:
+    """Wrapper class to run an Iterator/Generator within a maximum amount of time provided.
+    """
 
     def __init__(self, iterator: Iterator | Generator, time_limit) -> None:
         if not isinstance(time_limit, int) or time_limit <= 0:

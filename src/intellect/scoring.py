@@ -1,3 +1,6 @@
+"""
+Module containing utility functions for scoring.
+"""
 from numbers import Number
 from typing import Callable
 
@@ -9,6 +12,57 @@ from sklearn.metrics import accuracy_score
 from .dataset import Dataset
 from .model.base import BaseModel
 
+
+def knowledge_loss_gain_score(df: pd.DataFrame, func_weights: tuple[float] = None) -> pd.Series:
+    """Function to measure with different indicators the knowledge loss/gain with respect to
+    a baseline scenario, also provided in the dataframe.
+
+    Args:
+        df (pd.DataFrame): dataframe with data to be compared
+        func_weights (tuple[float], optional): list of weights to assign to each
+            indicator. Defaults to None.
+
+    Returns:
+        pd.Series: a series containing all the indicators and the final evaluation function score.
+    """
+    df = df[df.columns.difference(['Global'])]
+
+    if func_weights is None:
+        func_weights = [0.25] * 4
+
+    target = 'During Test' if 'During Test' in df.index else 'Test Before'
+    tmp = df.loc[target]
+    seen = tmp[~tmp.isna()].index.values
+    unseen = tmp[tmp.isna()].index.values
+
+    seen_proportions = pd.Series([1/len(seen)]*len(seen), index=seen)
+    unseen_proportions = pd.Series([1/len(unseen)]*len(unseen), index=unseen)
+
+    diff = df.loc['Validation After'] - df.loc['Validation Before']
+    diff_seen = diff[seen]
+    diff_unseen = diff[unseen]
+
+    loss_seen = diff_seen[diff_seen < 0]
+    loss_seen = (loss_seen*seen_proportions).sum()
+    gain_seen = diff_seen[diff_seen > 0]
+    gain_seen = (gain_seen*seen_proportions).sum()
+
+    loss_unseen = gain_unseen = 0
+    if unseen.size:
+        loss_unseen = diff_unseen[diff_unseen < 0]
+        loss_unseen = (loss_unseen*unseen_proportions).sum()
+        gain_unseen = diff_unseen[diff_unseen > 0]
+        gain_unseen = (gain_unseen*unseen_proportions).sum()
+    else:
+        to_add = func_weights[2] / 2 + func_weights[3] / 2
+        func_weights[2] = func_weights[3] = 0.
+        func_weights[0] += to_add
+        func_weights[1] += to_add
+
+    factors = [loss_seen, gain_seen, loss_unseen, gain_unseen]
+
+    return pd.Series([sum(factors[i] * func_weights[i] for i in range(len(factors)))] + factors,
+                     index=['Func', 'Loss Seen', 'Gain Seen', 'Loss Unseen', 'Gain Unseen'])
 
 def safe_division(dividend: Number, divisor: Number) -> float:
     """Perform safe division between two numbers, returning
@@ -42,14 +96,14 @@ def compute_metric_percategory_on_datasets(
     df_percategory = pd.DataFrame()
     for ds, name in zip(datasets, names):
         y_pred_tmp = model.predict(ds.X)
-        tmp_percategory = compute_metric_percategory(ds.y.values, y_pred_tmp, ds._y, scorer=scorer, also_global=True)
+        tmp_percategory = compute_metric_percategory(ds.y.values, y_pred_tmp, ds._y, scorer=scorer)
         df_percategory = pd.concat((df_percategory, pd.DataFrame(tmp_percategory, index=[name])))
     return df_percategory
 
 
 def compute_metric_percategory(
         ytrue: list, ypred: list, labels: pd.Series,
-        scorer: Callable = accuracy_score, also_global: bool = True) -> dict[str, float]:
+        scorer: Callable = accuracy_score) -> dict[str, float]:
     """Function to compute the metric foreach category available.
 
     Args:
@@ -57,7 +111,6 @@ def compute_metric_percategory(
         ypred (list): array containing the predicted labels
         labels (pd.Series): categories assigned to each entry
         scorer (Callable, optional): evaluation metric. Defaults to accuracy_score.
-        also_global (bool, optional): add the overall metric on the whole data. Defaults to True.
 
     Returns:
         dict[str, float]: dictionary with the score for each category.
@@ -67,11 +120,9 @@ def compute_metric_percategory(
     ypred = _ensure_type(ypred)
     labels = _ensure_type(labels)
 
-    if also_global:
-        ret['Global'] = scorer(ytrue, ypred)
-
+    ret['Global'] = scorer(ytrue, ypred)
     for k in np.unique(labels):
-        indexes = np.where(labels == k)
+        indexes = np.where(labels == k)[0]
         ret[k] = scorer(ytrue[indexes], ypred[indexes])
     return ret
 

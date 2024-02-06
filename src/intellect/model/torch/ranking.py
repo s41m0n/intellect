@@ -1,3 +1,6 @@
+"""
+Module to provide functions for ranking the importance of features in a torch-based neural network.
+"""
 import numpy as np
 import torch
 from captum.attr import IntegratedGradients, Occlusion
