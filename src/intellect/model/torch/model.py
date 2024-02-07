@@ -317,12 +317,13 @@ class TorchModel(BaseModel):
                     val_loss, val_pred, val_true = 0, None, None
                     with torch.no_grad():
                         for _, (a, b, _) in enumerate(val_loader):
-                            y_raw_val = self.model(self.safe_cast_input(a)).detach().cpu()
+                            y_raw_val = self.model(self.safe_cast_input(a)).detach()
                             if self.is_discrete:
                                 y_raw_val = y_raw_val.squeeze()
                             val_loss += self.loss_fn(y_raw_val, self.safe_cast_input(b, is_y=True)).item()
                             val_true = b if val_true is None else np.concatenate((val_true, b), axis=0)
-                            val_pred = y_raw_val if val_pred is None else np.concatenate((val_pred, y_raw_val), axis=0)
+                            val_pred = y_raw_val.cpu() if val_pred is None else np.concatenate(
+                                (val_pred, y_raw_val.cpu()), axis=0)
                     val_loss /= len(val_loader)
                     history['loss_validation'].append(val_loss)
                     metric_validation = val_loss
