@@ -21,3 +21,9 @@ repos:
         name: ensure
         entry: bash -c 'make test-code'
         language: system
+
+exclude: |
+    (?x)(
+        ^examples/|
+        ^output/
+    )
