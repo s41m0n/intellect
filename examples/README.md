@@ -2,5 +2,14 @@
 
 Generally, the files in this directory are one-shot examples, while sub-directories contain more structured examples with open source datasets.
 
-1. [experiments_datadistribution.ipynb](./experiments_datadistribution.ipynb): experiments on different data distribution and comparison metrics.
-1. [online_learning_drifts](./online_learning_drifts/): examples of online learning with pruning and drift detection techniques on public datasets. In particolar, this refer to the collaboration with @seshutir (IBM Research Centre, Dublin).
+Publication-related works:
+
+1. [first_publication_BIGDATA](./first_publication_BIGDATA/): first collaboration with @stefano81, @ambrishrawat and @mkpurcell (IBM Research Centre, Dublin) about pruning FL models for IADS in resource-constrained environments.
+
+1. [second_publication_ONGOING](./second_publication_ONGOING/): second collaboration with @stefano81 and Liubov Nedoshivina (IBM Research Centre, Dublin) about learning paradigms to preserve previously acquired knowledge on network traffic attacks.
+
+1. [third_publication_ONGOING](./third_publication_ONGOING/): third collaboration with @stefano81 and @seshutir (IBM Research Centre, Dublin) about neural network pruning and ensemble effects in online learning IoT scenarios.
+
+Other works:
+
+1. [misc](./misc/): miscellaneous files and experiments.

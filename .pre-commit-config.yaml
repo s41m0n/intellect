@@ -19,11 +19,5 @@ repos:
     hooks:
     -   id: ensure
         name: ensure
-        entry: bash -c 'make test-code'
+        entry: bash -c 'make test-code && make test-lint'
         language: system
-
-exclude: |
-    (?x)(
-        ^examples/|
-        ^output/
-    )
