@@ -17,7 +17,11 @@ repos:
     -   id: check-xml
 -   repo: local
     hooks:
-    -   id: ensure
-        name: ensure
-        entry: bash -c 'make test-code && make test-lint'
+    -   id: ensure-lint
+        name: ensure-lint
+        entry: bash -c 'make test-lint'
+        language: system
+    -   id: ensure-code
+        name: ensure-code
+        entry: bash -c 'make test-code'
         language: system

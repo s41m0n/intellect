@@ -276,9 +276,6 @@ class TorchModel(BaseModel):
                     else:
                         raise ValueError(f'Unknown learn input {learn_input} {learn_input.value}')
 
-                    if self.is_autoencoder:
-                        labels = inputs
-
                     if algorithm.value == ContinuouLearningAlgorithm.ground_inferred.value:
                         inferred_labels = oracle.predict(inputs_oracle)
                         predictions, loss = self.learn(inputs, inferred_labels)
@@ -659,7 +656,7 @@ class MlpEncoder(TorchModel):
             current_size = next_size
 
         for i in range(hidden_layers):
-            name = 'output' if i + 1 == len(hidden_layers) else 'decoder'
+            name = 'output' if i + 1 == hidden_layers else 'decoder'
             next_size = current_size * 2
             self.model.add_module(f'{name}_{i}_layer', torch.nn.Linear(
                 current_size, next_size, dtype=dtype))

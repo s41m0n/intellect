@@ -151,7 +151,7 @@ class Dataset:
             return [i for i, v in enumerate(self.X.columns.values) if v not in keep_features]
 
         ds_tmp: 'Dataset' = self.clone()
-        if default is None:
+        if default is False:
             ds_tmp.X = ds_tmp.X[ds_tmp.X.columns.intersection(keep_features)]
         else:
             ds_tmp.X.loc[:, ~ds_tmp.X.columns.isin(keep_features)] = default
