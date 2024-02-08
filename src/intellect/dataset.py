@@ -6,7 +6,7 @@ from __future__ import annotations
 import re
 from copy import deepcopy
 from enum import Enum
-from typing import Generator
+from typing import Iterable
 
 import numpy as np
 import pandas as pd
@@ -309,7 +309,7 @@ class Dataset:
         return self.X.shape
 
 
-def min_max_multiple(ds_list: list[pd.DataFrame | str]) -> Generator[Dataset]:
+def min_max_multiple(ds_list: list[pd.DataFrame | str]) -> Iterable[Dataset]:
     """Function that normalizes the provided datasets and returns them.
     Useful when dealing with different datasets saved separately (e.g., train and test).
 
@@ -317,7 +317,7 @@ def min_max_multiple(ds_list: list[pd.DataFrame | str]) -> Generator[Dataset]:
         ds_list (list[pd.DataFrame | str]): list of datasets, as strings or Dataset objects.
 
     Yields:
-        Generator[Dataset]: the normalized datasets.
+        Iterable[Dataset]: the normalized datasets.
     """
     num_cols = None
     minn, maxx = [], []

@@ -2,7 +2,7 @@
 Module with utilities function and generic approaches to perform feature ranking
 with a provided classifier.
 """
-from typing import Callable, Generator
+from typing import Callable, Iterator
 
 import numpy as np
 from sklearn.decomposition import PCA
@@ -179,7 +179,7 @@ def sequential_backward_elimination(
 def subset_search(
         model: BaseModel, ds: Dataset, ratio: float, attempts: int,
         rank: dict[str, float] = None, metric: Callable = accuracy_score, performance_drop_ratio: float = None,
-        baseline: float = None, stuck_guard: int = 1000) -> Generator[list[str], float, bool]:
+        baseline: float = None, stuck_guard: int = 1000) -> Iterator[tuple[list[str], float, bool]]:
     """Function to perform only subset search given a classifier.
 
     Args:
@@ -202,7 +202,7 @@ def subset_search(
         ValueError: when unable to pick a new unexplored combination of features.
 
     Yields:
-       list[str], float, bool: for each explored attempt, the list of active features
+       Iterator[tuple[list[str], float, bool]]: for each explored attempt, the list of active features
                     in the subset, the metric score achieved and whether is accepted or
                     not with respect to the performance drop ratio value provided.
     """
@@ -233,7 +233,7 @@ def subset_search(
 def prune_search(
         model: BaseModel, ds: Dataset, prune_algorithm: Callable, prune_ratios: list[float], *args,
         metric: Callable = accuracy_score, performance_drop_ratio: float = None,
-        baseline: float = None, **kwargs) -> Generator[float, float, bool]:
+        baseline: float = None, **kwargs) -> Iterator[tuple[float, float, bool]]:
     """Function to perform only the pruning of a given classifier.
 
     Args:
@@ -247,7 +247,7 @@ def prune_search(
         baseline (float, optional): _description_. Defaults to None.
 
     Yields:
-        Generator[float, float, bool]: for each explored attempt, the pruning ratio,
+        Iterator[tuple[float, float, bool]]: for each explored attempt, the pruning ratio,
                     the score associated to the pruned model and whether it is accepted
                     or not considering the provided performance drop ratio.
     """
@@ -267,7 +267,7 @@ def prune_and_subset_search(
         model: BaseModel, prune_algorithm: Callable, ds: Dataset, prune_ratios: list[float],
         subset_ratio: float, subset_attempts: int, *args, rank: dict[str, float] = None,
         metric: Callable = accuracy_score, baseline: float = None,
-        performance_drop_ratio: float = None, **kwargs) -> Generator[float, dict[tuple[str], float]]:
+        performance_drop_ratio: float = None, **kwargs) -> Iterator[tuple[float, dict[tuple[str], float]]]:
     """Function to perform jointly (a) model pruning and then (b) the feature subset search.
 
     Args:
@@ -285,7 +285,7 @@ def prune_and_subset_search(
         performance_drop_ratio (float, optional): max accepted drop in the performance. Defaults to None.
 
     Yields:
-        Generator[float, dict[tuple[str], float]]: for each value, returns the prune ratio,
+        Iterator[tuple[float, dict[tuple[str], float]]]: for each value, returns the prune ratio,
             and a dictionary with the list of active features as a key and the obtained
             final accuracy as value.
     """
@@ -309,7 +309,8 @@ def prune_and_subset_search(
 def subset_search_and_prune(
         model: BaseModel, prune_algorithm: Callable, ds: Dataset, prune_ratios: list[float], subset_ratio: float,
         subset_attempts: int, *args, rank: dict[str, float] = None, metric: Callable = accuracy_score,
-        baseline: float = None, performance_drop_ratio: float = None, **kwargs) -> Generator[list[str], float, float]:
+        baseline: float = None, performance_drop_ratio: float = None, **kwargs) -> Iterator[
+            tuple[list[str], float, float]]:
     """Function to perform jointly (a) the feature subset search and then (b) the pruning of the classifier.
 
     Args:
@@ -327,7 +328,7 @@ def subset_search_and_prune(
         performance_drop_ratio (float, optional): max accepted drop in the performance. Defaults to None.
 
     Yields:
-        Generator[list[str], float, float]: list with active features for the subset, the metric score,
+        Iterator[tuple[list[str], float, float]]: list with active features for the subset, the metric score,
             and the pruning ratio accepted. Multiple ratios are provided in different return values.
     """
 
