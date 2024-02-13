@@ -1,6 +1,8 @@
 """
 Module containing utility functions for scoring.
 """
+from __future__ import annotations
+
 from numbers import Number
 from typing import Callable
 
@@ -13,7 +15,8 @@ from .dataset import Dataset
 from .model.base import BaseModel
 
 
-def knowledge_loss_gain_score(df: pd.DataFrame, func_weights: tuple[float] = None) -> pd.Series:
+def knowledge_loss_gain_score(df: pd.DataFrame, func_weights: tuple[float] = None,
+                              ignore_categories: list[str] = None) -> pd.Series:
     """Function to measure with different indicators the knowledge loss/gain with respect to
     a baseline scenario, also provided in the dataframe.
 
@@ -21,16 +24,20 @@ def knowledge_loss_gain_score(df: pd.DataFrame, func_weights: tuple[float] = Non
         df (pd.DataFrame): dataframe with data to be compared
         func_weights (tuple[float], optional): list of weights to assign to each
             indicator. Defaults to None.
+        ignore_categories (list[str], Optinal): list of optional categories to exclude
+            during the computation of the metrics. Default to None.
 
     Returns:
         pd.Series: a series containing all the indicators and the final evaluation function score.
     """
-    df = df[df.columns.difference(['Global'])]
+    if ignore_categories is None:
+        ignore_categories = []
+    df = df[df.columns.difference(ignore_categories + ['Global'])]
 
     if func_weights is None:
         func_weights = [0.25] * 4
 
-    target = 'During Test' if 'During Test' in df.index else 'Test Before'
+    target = 'During Test' if 'During Test' in df.index else 'Finetune Before'
     tmp = df.loc[target]
     seen = tmp[~tmp.isna()].index.values
     unseen = tmp[tmp.isna()].index.values
@@ -128,17 +135,19 @@ def compute_metric_percategory(
 
 
 def compute_metric_incremental(
-        ytrue: list, ypred: list, metric: metrics.base = metrics.Accuracy()) -> list[float]:
+        ytrue: list, ypred: list, metric: metrics.base | str = 'Accuracy') -> list[float]:
     """Function to compute the metric incrementally point after point.
 
     Args:
         ytrue (list): the list of true labels
         ypred (list): the list of predicted labels
-        metric (metrics.base, optional): the incremental metric to be used. Defaults to metrics.Accuracy().
+        metric (metrics.base | str, optional): the incremental metric to be used. Defaults to metrics.Accuracy().
 
     Returns:
         list[float]: list of the metric computed after each point.
     """
+    if isinstance(metric, str):
+        metric = getattr(metrics, metric)()
     ytrue = _ensure_type(ytrue)
     ypred = _ensure_type(ypred)
 

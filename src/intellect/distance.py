@@ -1,7 +1,6 @@
 """
 Module with utility function concerning the distance between models and vectors of data.
 """
-import math
 from itertools import combinations
 
 import numpy as np
@@ -83,18 +82,16 @@ def distance_between_categories(ds: Dataset, only_common=False) -> dict[tuple[st
             Jensen Shannon measure of each feature column.
     """
     ret = {}
-    with tqdm(math.comb(ds.n_categories, 2)) as pbar:
-        for x, y in list(combinations(ds.categories, 2)):
-            c, d = ds.filter_categories([x]), ds.filter_categories([y])
-            out = {}
-            for col in c.X.columns.values:
-                _, v1, v2 = distributions_to_probabilities(
-                    c.X[col].to_numpy(),
-                    d.X[col].to_numpy(),
-                    only_common=only_common)
-                out[col] = jensenshannon(v1, v2)
-            ret[(x, y)] = out
-            pbar.update()
+    for x, y in tqdm(combinations(ds.categories, 2)):
+        c, d = ds.filter_categories([x]), ds.filter_categories([y])
+        out = {}
+        for col in c.X.columns.values:
+            _, v1, v2 = distributions_to_probabilities(
+                c.X[col].to_numpy(),
+                d.X[col].to_numpy(),
+                only_common=only_common)
+            out[col] = jensenshannon(v1, v2)
+        ret[(x, y)] = out
     return ret
 
 def get_data_drifts(ds_origin: Dataset, ds_target: Dataset, detector: DriftDetector = ADWIN()) -> dict[str, list[int]]:

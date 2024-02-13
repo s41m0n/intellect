@@ -2,15 +2,18 @@
 Module definining the enhanced version of sklearn multilayer perceptron neural
 networks with additional support to the dropout and pruning methodologies.
 """
+import math
 from abc import abstractmethod
 from copy import deepcopy
 from numbers import Real
 from typing import Literal
 
 import numpy as np
+import pandas as pd
 import sklearn
 from numpy import ndarray
 from numpy.random import RandomState
+from river.base import DriftDetector
 from sklearn.neural_network import MLPClassifier, MLPRegressor
 from sklearn.neural_network._base import (ACTIVATIONS, DERIVATIVES,
                                           LOSS_FUNCTIONS)
@@ -18,11 +21,13 @@ from sklearn.neural_network._multilayer_perceptron import \
     BaseMultilayerPerceptron
 from sklearn.utils._param_validation import Interval
 from sklearn.utils.extmath import safe_sparse_dot
+from tqdm import tqdm
 
+from ...dataset import Dataset
 from ..base import BaseModel
 
 
-class EnhancedMlp(BaseMultilayerPerceptron, BaseModel):
+class BaseEnhancedMlp(BaseMultilayerPerceptron, BaseModel):
     """Enhanced version of sklearn multilayer perceptron, with additional
     support to dropout and pruning techniques. This is an experimental
     class, some of the base functionalities are not implemented yet.
@@ -30,6 +35,7 @@ class EnhancedMlp(BaseMultilayerPerceptron, BaseModel):
 
     _parameter_constraints: dict = {
         **BaseMultilayerPerceptron._parameter_constraints,
+        'drift_detector': [DriftDetector, None],
         'dropout': [Interval(Real, 0, 1, closed='left')],
         'prune_masks': [np.ndarray, list, None]
     }
@@ -39,24 +45,28 @@ class EnhancedMlp(BaseMultilayerPerceptron, BaseModel):
         ...
 
     def __init__(
-            self, dropout: float = 0., prune_masks: list[np.ndarray] = None, hidden_layer_sizes=...,
+            self, classes: list[int],
+            drift_detector=None, dropout: float = 0., prune_masks: list[np.ndarray] = None, hidden_layer_sizes=...,
             activation: Literal['relu', 'identity', 'logistic', 'tanh'] = 'relu', *,
-            solver: Literal['lbfgs', 'sgd', 'adam'] = 'adam', alpha: float = 0.0001,
-            batch_size: int | str = 'auto', learning_rate_init: float = 0.001,
+            solver: Literal['lbfgs', 'sgd', 'adam'] = 'adam', alpha: float = 0.0001, batch_size: int | str = 'auto',
+            learning_rate_init: float = 0.001, power_t: float = 0.5, max_iter: int = 200,
+            loss: str = None, shuffle: bool = True,
             learning_rate: Literal['constant', 'invscaling', 'adaptive'] = 'constant',
-            power_t: float = 0.5, max_iter: int = 200, shuffle: bool = True,
             random_state: int | RandomState | None = None, tol: float = 0.0001, verbose: bool = False,
-            warm_start: bool = False, momentum: float = 0.9, nesterovs_momentum: bool = True,
-            early_stopping: bool = False, validation_fraction: float = 0.1, beta_1:
-            float = 0.9, beta_2: float = 0.999, epsilon: float = 1e-8, n_iter_no_change: int = 10,
+            warm_start: bool = False, momentum: float = 0.9,
+            nesterovs_momentum: bool = True, early_stopping: bool = False, validation_fraction: float = 0.1,
+            beta_1: float = 0.9, beta_2: float = 0.999, epsilon: float = 1e-8, n_iter_no_change: int = 10,
             max_fun: int = 15000):
         super().__init__(
             hidden_layer_sizes, activation, solver=solver, alpha=alpha, batch_size=batch_size,
             learning_rate=learning_rate, learning_rate_init=learning_rate_init, power_t=power_t, max_iter=max_iter,
-            loss=None, shuffle=shuffle, random_state=random_state, tol=tol, verbose=verbose, warm_start=warm_start,
+            loss=loss, shuffle=shuffle, random_state=random_state, tol=tol, verbose=verbose, warm_start=warm_start,
             momentum=momentum, nesterovs_momentum=nesterovs_momentum, early_stopping=early_stopping,
             validation_fraction=validation_fraction, beta_1=beta_1, beta_2=beta_2, epsilon=epsilon,
             n_iter_no_change=n_iter_no_change, max_fun=max_fun)
+        BaseModel.__init__(self, drift_detector=drift_detector)
+        self.classes = classes
+        self.drift_detector = drift_detector
         self.dropout = dropout
         self.prune_masks = prune_masks
 
@@ -186,44 +196,172 @@ class EnhancedMlp(BaseMultilayerPerceptron, BaseModel):
         self.prune_masks = other.prune_masks
 
     def predict(self, X, *args, **kwargs) -> ndarray:
-        return self._parse_ypred(super().predict(X))
+        X = self.safe_cast_input(X)
+        if not hasattr(self, 'coefs_'):
+            return np.zeros(len(X))
+        return self._parse_ypred(self.predict_proba(X))
 
-    def concept_react(self, *args, **kwargs):
-        raise NotImplementedError()
+    def safe_cast_input(self, X: list, is_y=False) -> np.ndarray:
+        """Function to convert input to neural network compliant one.
 
-    def learn(self, *args, **kwargs):
-        self.partial_fit(*args, **kwargs)
+        Args:
+            X (list): input data.
+            is_y (bool, optional): whether the vector is a list of labels.
+                Defaults to False.
 
-    def continuous_learning(self, *args, **kwargs):
-        raise NotImplementedError()
+        Returns:
+            np.ndarray: the input vector converted
+        """
+        if isinstance(X, dict):
+            X = np.array(list(X.values()))
+        if isinstance(X, (pd.DataFrame, pd.Series)):
+            X = X.to_numpy()
+        if is_y and X.ndim != 1:
+            X = X.reshape((1, -1))
+        if not is_y and X.ndim != 2:
+            X = X.reshape((1, -1))
+        return X
 
-    @property
+    def learn(self, X, y, *args, **kwargs):
+        X = self.safe_cast_input(X)
+        y = self.safe_cast_input(y, is_y=True)
+        old_batch = self.batch_size
+        self.batch_size = min(old_batch, X.shape[0])
+        learn_kwargs = {'classes': self.classes} if str(self.__class__) == str(EnhancedMlpClassifier) else {}
+        self.partial_fit(X, y, *args, **learn_kwargs, **kwargs)
+        self.batch_size = old_batch
+
+    def fit(self, X, y):
+        return super().fit(self.safe_cast_input(X), self.safe_cast_input(y, is_y=True))
+
+    def continuous_learning(self, ds: Dataset, *args, epochs=1, batch_size=1, concept_react_func=None, **kwargs):
+
+        old_batch = self.batch_size
+        self.batch_size = batch_size
+        y_preds, y_true, y_labels, drifts = np.empty(0), np.empty(0), np.empty(0), np.empty(0)
+
+        niter = math.ceil(len(ds)/batch_size)
+
+        for i in tqdm(range(niter)):
+            base = i*batch_size
+            inputs = ds.X.iloc[base:base+batch_size].to_numpy()
+            labels = ds.y.iloc[base:base+batch_size].to_numpy()
+            type_labels = ds._y.iloc[base:base+batch_size].to_numpy()
+
+            if base != 0:
+                pred = self.predict(inputs)
+            else:
+                pred = np.zeros(len(inputs))
+
+            y_true = np.concatenate((y_true, labels), axis=0)
+            y_labels = np.concatenate((y_labels, type_labels), axis=0)
+            y_preds = np.concatenate((y_preds, pred), axis=0)
+
+            for _ in range(epochs):
+                self.learn(inputs, labels)
+
+            if self.drift_detector is not None:
+                for j, (vt, vp) in enumerate(zip(labels, self.predict(inputs))):
+                    self.drift_detector.update(int(not vt == vp))
+                    if self.is_concept_drift():
+                        drifts = np.append(drifts, len(y_preds) + j)
+                        if concept_react_func is not None:
+                            concept_react_func(self)
+        self.batch_size = old_batch
+        return y_preds, y_true, y_labels, drifts
+
     def is_concept_drift(self, *args, **kwargs):
-        raise NotImplementedError()
+        return self.drift_detector is not None and self.drift_detector.drift_detected
+
+    def predict_proba(self, X, *args, **kwargs):
+        if not hasattr(self, 'coefs_'):
+            r = np.zeros(len(X))
+            if kwargs.get('as_dict', False):
+                r = [{i: (1 if i == 0 else 0) for i, _ in enumerate(self.classes)} for _ in r]
+        elif str(self.__class__) == str(EnhancedMlpClassifier):
+            r = MLPClassifier.predict_proba(self, self.safe_cast_input(X))
+            if kwargs.get('as_dict', False):
+                r = [dict(enumerate(j)) for j in r]
+        else:
+            r = MLPRegressor.predict(self, self.safe_cast_input(X))
+            if kwargs.get('as_dict', False):
+                ret = []
+                for v in r:
+                    tmp = {math.ceil(v): v, math.floor(v): 1-v}
+                    for c in self.classes:
+                        if c in tmp:
+                            continue
+                        tmp[c] = 0.
+                    ret.append(tmp)
+                r = ret
+        return r
 
 
-class EnhancedMlpClassifier(EnhancedMlp, MLPClassifier):
+class EnhancedMlpClassifier(BaseEnhancedMlp):
     """Enhanced version of sklearn classifier neural network, with pruning
     techniques and dropout implemented.
     """
+
+    def __init__(
+            self, classes: list[int],
+            drift_detector=None, dropout: float = 0, prune_masks: list[ndarray] = None, hidden_layer_sizes=(100,),
+            activation='relu', *, solver='adam', alpha=0.0001, batch_size='auto', learning_rate='constant',
+            learning_rate_init=0.001, power_t=0.5, max_iter=200, shuffle=True, random_state=None, tol=1e-4,
+            verbose=False, warm_start=False, momentum=0.9, nesterovs_momentum=True, early_stopping=False,
+            validation_fraction=0.1, beta_1=0.9, beta_2=0.999, epsilon=1e-8, n_iter_no_change=10, max_fun=15000):
+        super().__init__(classes, drift_detector, dropout, prune_masks, hidden_layer_sizes, activation, solver=solver,
+                         alpha=alpha, batch_size=batch_size, learning_rate_init=learning_rate_init, power_t=power_t,
+                         loss='log_loss', max_iter=max_iter, shuffle=shuffle, learning_rate=learning_rate,
+                         random_state=random_state, tol=tol, verbose=verbose, warm_start=warm_start,
+                         momentum=momentum, nesterovs_momentum=nesterovs_momentum, early_stopping=early_stopping,
+                         validation_fraction=validation_fraction, beta_1=beta_1, beta_2=beta_2,
+                         epsilon=epsilon, n_iter_no_change=n_iter_no_change, max_fun=max_fun)
+
     @property
     def prunable(self):
         return tuple(i for i in range(len(self.coefs_)))
 
     def _parse_ypred(self, y):
-        return np.argmax(y, axis=1)
+        return np.argmax(y, axis=-1)
 
+    predict_proba = MLPClassifier.predict_proba
+    predict_log_proba = MLPClassifier.predict_log_proba
+    partial_fit = MLPClassifier.partial_fit
+    predict = MLPClassifier.predict
+    _score = MLPClassifier._score
+    _validate_input = MLPClassifier._validate_input
+    _predict = MLPClassifier._predict
+    _more_tags = MLPClassifier._more_tags
 
-class EnhancedMlpRegressor(EnhancedMlp, MLPRegressor):
+class EnhancedMlpRegressor(BaseEnhancedMlp):
     """Enhanced version of sklearn regressor neural network, with pruning
     techniques and dropout implemented.
     """
+
+    def __init__(
+            self, classes: list[int],
+            drift_detector=None, dropout: float = 0, prune_masks: list[ndarray] = None, hidden_layer_sizes=(100,),
+            activation='relu', *, solver='adam', alpha=0.0001, batch_size='auto', learning_rate='constant',
+            learning_rate_init=0.001, power_t=0.5, max_iter=200, shuffle=True, random_state=None, tol=1e-4,
+            verbose=False, warm_start=False, momentum=0.9, nesterovs_momentum=True, early_stopping=False,
+            validation_fraction=0.1, beta_1=0.9, beta_2=0.999, epsilon=1e-8, n_iter_no_change=10, max_fun=15000):
+        super().__init__(classes, drift_detector, dropout, prune_masks, hidden_layer_sizes, activation, solver=solver,
+                         alpha=alpha, batch_size=batch_size, learning_rate_init=learning_rate_init, power_t=power_t,
+                         loss='squared_error', max_iter=max_iter, shuffle=shuffle, learning_rate=learning_rate,
+                         random_state=random_state, tol=tol, verbose=verbose, warm_start=warm_start,
+                         momentum=momentum, nesterovs_momentum=nesterovs_momentum, early_stopping=early_stopping,
+                         validation_fraction=validation_fraction, beta_1=beta_1, beta_2=beta_2,
+                         epsilon=epsilon, n_iter_no_change=n_iter_no_change, max_fun=max_fun)
+
     @property
     def prunable(self):
         return tuple(i for i in range(len(self.coefs_)))
 
-    def predict_proba(self, X, *args, **kwargs):
-        return MLPRegressor.predict(self, X)
-
     def _parse_ypred(self, y):
-        return np.round(y)
+        return np.abs(np.round(y))
+
+    _predict = MLPRegressor._predict
+    _score = MLPRegressor._score
+    _validate_input = MLPRegressor._validate_input
+    partial_fit = MLPRegressor.partial_fit
+    predict = MLPRegressor.predict

@@ -99,17 +99,15 @@ def benchmark_forward(model: TorchModel, X: list, times: int, warmup: int) -> li
         list[int]: list of times
     """
     scores = []
-    with torch.no_grad(), tqdm(range(times + warmup)) as pbar:
+    with torch.no_grad():
         X = model.safe_cast_input(X)
-        for _ in range(warmup):
+        for _ in tqdm(range(warmup)):
             model.model(X)
-            pbar.update()
-        for _ in range(times):
+        for _ in tqdm(range(times)):
             start = time.time_ns()
             model.model(X)
             end = time.time_ns()
             scores.append(len(X) / (end - start))
-            pbar.update()
     return scores
 
 

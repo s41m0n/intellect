@@ -4,15 +4,15 @@ Module containing utility functions for pruning sklearn defined neural networks.
 import numpy as np
 from sklearn.utils.validation import check_is_fitted
 
-from .model import EnhancedMlp
+from .model import BaseEnhancedMlp
 
 
-def distance_l2(model: EnhancedMlp, other: EnhancedMlp, only_prunable: bool = True) -> float:
+def distance_l2(model: BaseEnhancedMlp, other: BaseEnhancedMlp, only_prunable: bool = True) -> float:
     """Return the norm 2 difference between the two model parameters
 
     Args:
-        model (EnhancedMlp): one model
-        other (EnhancedMlp): the other model
+        model (BaseEnhancedMlp): one model
+        other (BaseEnhancedMlp): the other model
         only_prunable (bool, optional): whether to consider only prunable layers.
             Defaults to True.
 
@@ -28,11 +28,11 @@ def distance_l2(model: EnhancedMlp, other: EnhancedMlp, only_prunable: bool = Tr
     return ret
 
 
-def sparsity(model: EnhancedMlp) -> tuple[float, list[int, float]]:
+def sparsity(model: BaseEnhancedMlp) -> tuple[float, list[int, float]]:
     """Function to compute the sparsity of a network
 
     Args:
-        model (EnhancedMlp): target network
+        model (BaseEnhancedMlp): target network
 
     Returns:
         tuple[float, list[int, float]]: tuple with global and per-layer sparsity
@@ -43,15 +43,15 @@ def sparsity(model: EnhancedMlp) -> tuple[float, list[int, float]]:
     return np.mean(single), single
 
 
-def prune_unstructured_connections_l1(model: EnhancedMlp, prune_ratio: float) -> EnhancedMlp:
+def globally_unstructured_connections_l1(model: BaseEnhancedMlp, prune_ratio: float) -> BaseEnhancedMlp:
     """Function to prune CONNECTION-UNSTRUCTURED with L1 norm
 
     Args:
-        model (EnhancedMlp): model to be pruned
+        model (BaseEnhancedMlp): model to be pruned
         prune_ratio (float): prune ratio between 0 and 1
 
     Returns:
-        EnhancedMlp: the pruned model
+        BaseEnhancedMlp: the pruned model
     """
     check_is_fitted(model, msg='Model not fitted, fit before pruning')
     new_model = model.clone(init=False)

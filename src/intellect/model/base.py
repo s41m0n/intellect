@@ -83,18 +83,13 @@ class BaseModel(ABC):
                 and the list of drifts, if any.
         """
 
-    @property
     @abstractmethod
-    def is_concept_drift(self) -> bool:
+    def is_concept_drift(self, *args, **kwargs) -> bool:
         """Property to check if concept drift in the model has been detected.
 
         Returns:
             bool: whether a concept drift has been detected
         """
-
-    @abstractmethod
-    def concept_react(self, *args, **kwarg) -> None:
-        """Function to react to a concept drift"""
 
     @property
     @abstractmethod
@@ -115,8 +110,7 @@ class BaseModel(ABC):
         Returns:
             tuple[float, float]: predicted value and loss value
         """
-        predictions, loss = self.learn(x, y, *args, **kwargs)
-        return predictions[0], loss
+        self.learn(x, y, *args, **kwargs)
 
     def predict_one(self, X: list, *args, **kwargs) -> int:
         """Function to predict provided sample

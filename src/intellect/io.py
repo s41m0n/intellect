@@ -282,7 +282,6 @@ def dump(x: object, filename: str, **kwargs):
             return fp.write(x)
 
     filename += '.pkl'
-    print('Dumping using fallback pickle method')
     with open(filename, 'wb') as fp:
         return pickle.dump(x, fp)
 
@@ -310,9 +309,6 @@ def load(filename: str, convert_cls=None, **kwargs) -> object:
             x = yaml.safe_load(fp, **kwargs)
     elif filename.endswith('.csv'):
         x = pd.read_csv(filename, **kwargs)
-    elif filename.endswith('.pkl'):
-        with open(filename, 'rb') as fp:
-            x = pickle.load(filename)
     elif filename.endswith('.joblib'):
         x = joblib.load(filename, **kwargs)
     elif filename.endswith('.h5'):
@@ -321,7 +317,13 @@ def load(filename: str, convert_cls=None, **kwargs) -> object:
         with open(filename, 'r', encoding='UTF-8') as fp:
             x = fp.read()
     else:
-        raise ValueError("Don't know load method")
+        if os.path.isfile(filename + '.pkl'):
+            filename += '.pkl'
+        if filename.endswith('.pkl'):
+            with open(filename, 'rb') as fp:
+                x = pickle.load(fp)
+        else:
+            raise ValueError("Don't know load method")
 
     if convert_cls:
         x = dataclass_from_dict(convert_cls, x)

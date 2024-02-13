@@ -261,6 +261,15 @@ class Dataset:
         return self.X.columns.values.tolist()
 
     @property
+    def classes(self) -> list[int]:
+        """Function to return the list of all possible classes..
+
+        Returns:
+            list[int]: list of unique classes
+        """
+        return self.y.unique()
+
+    @property
     def n_classes(self) -> int:
         """Function to return the number of predict classes in the dataset.
 

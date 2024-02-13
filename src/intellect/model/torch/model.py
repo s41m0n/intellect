@@ -74,7 +74,7 @@ class TorchModel(BaseModel):
         Returns:
             str: the name of the device
         """
-        return next(self.model.parameters()).device
+        return next(self.model.parameters()).device.type
 
     @property
     def xtype(self) -> torch.dtype:
@@ -201,7 +201,7 @@ class TorchModel(BaseModel):
 
     def predict_proba(self, X: torch.Tensor, *args, **kwargs):
         with torch.no_grad():
-            y = self.model(self.safe_cast_input(X)).detach()
+            y = self.model(self.safe_cast_input(X)).detach().cpu()
         if self.final_act == 'LogSoftmax':
             y = torch.exp(y)
         if self.is_discrete:
@@ -212,11 +212,11 @@ class TorchModel(BaseModel):
         return y
 
     def fit(self, train_dataset: Dataset, validation_dataset: Dataset | float = 0.2, batch_size: int = 256,
-            max_epochs: int = 100, epochs_wo_improve: int = None, metric=accuracy_score, monitori_ds=None,
+            max_epochs: int = 100, epochs_wo_improve: int = None, metric=accuracy_score, monitor_ds=None,
             shuffle=True, optimizer: torch.optim.Optimizer = None, loss_fn: torch.nn.modules.loss._Loss = None,
             higher_better=True, algorithm: ContinuouLearningAlgorithm = ContinuouLearningAlgorithm.ground_truth,
             learn_input=InputForLearn.client, oracle=None, optim_kwargs=None, learn_kwargs=None,
-            idx_active_features=None, idx_active_features_oracle=None):
+            idx_active_features=None, idx_active_features_oracle=None, concept_react_func=None):
         if optim_kwargs is None:
             optim_kwargs = {}
         if learn_kwargs is None:
@@ -227,6 +227,14 @@ class TorchModel(BaseModel):
             idx_active_features_oracle = []
         if metric is None:
             higher_better = False
+
+        scaler = None
+        if self.device == 'cuda':
+            torch.backends.cudnn.benchmark = True
+            torch.autograd.profiler.profile(enabled=False)
+            torch.autograd.profiler.emit_nvtx(enabled=False)
+            torch.autograd.set_detect_anomaly(mode=False)
+            scaler = torch.cuda.amp.GradScaler(enabled=True)
 
         monitored_metrics = []
         best_metric = 0 if higher_better else sys.maxsize
@@ -251,108 +259,117 @@ class TorchModel(BaseModel):
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=shuffle,
                                   num_workers=os.cpu_count(), pin_memory=True, persistent_workers=False)
 
-        with tqdm(range(max_epochs)) as pbar:
-            for i in range(max_epochs):
-                training_loss, training_pred, training_true = 0.0, None, None
+        for i in (pbar := tqdm(range(max_epochs))):
+            training_loss, training_pred, training_true = 0.0, None, None
 
-                for _, (inputs, labels, _) in enumerate(train_loader):
+            for _, (inputs, labels, _) in enumerate(train_loader):
+                inputs_client = inputs_oracle = inputs
+                true_labels = labels
+
+                if idx_active_features:
                     inputs_client = inputs.detach().clone()
-                    inputs_oracle = inputs.detach().clone()
                     inputs_client[:, idx_active_features] = 0.
+
+                if idx_active_features_oracle:
+                    inputs_oracle = inputs.detach().clone()
                     inputs_oracle[:, idx_active_features_oracle] = 0.
 
-                    if learn_input.value == InputForLearn.oracle.value:
-                        inputs = inputs_oracle
-                    elif learn_input.value == InputForLearn.client.value:
-                        inputs = inputs_client
-                    elif learn_input.value == InputForLearn.mixed.value:
-                        inputs = torch.concatenate((inputs_client, inputs_oracle))
-                        inputs_oracle = torch.concatenate((inputs_client, inputs_oracle))
-                        labels = torch.concatenate((labels, labels))
-                        p = np.random.permutation(len(labels))
-                        labels = labels[p]
-                        inputs_oracle = inputs_oracle[p]
-                        inputs = inputs[p]
-                    else:
-                        raise ValueError(f'Unknown learn input {learn_input} {learn_input.value}')
+                if algorithm.value == ContinuouLearningAlgorithm.ground_inferred.value:
+                    inferred_labels = oracle.predict(inputs_oracle)
 
-                    if algorithm.value == ContinuouLearningAlgorithm.ground_inferred.value:
-                        inferred_labels = oracle.predict(inputs_oracle)
-                        predictions, loss = self.learn(inputs, inferred_labels)
-                    elif algorithm.value == ContinuouLearningAlgorithm.ground_truth.value:
-                        predictions, loss = self.learn(inputs, labels)
-                    elif algorithm.value == ContinuouLearningAlgorithm.knowledge_distillation.value:
-                        predictions, loss = self.learn_knowledge_distillation(
-                            oracle, inputs, inputs_oracle, labels, **learn_kwargs)
-                    else:
-                        raise ValueError(f'Unknown algorithm {algorithm} {algorithm.value}')
-
-                    training_loss += loss
-                    training_pred = predictions if training_pred is None else np.concatenate(
-                        (training_pred, predictions), axis=0)
-                    training_true = labels if training_true is None else np.concatenate((training_true, labels), axis=0)
-
-                    if self.drift_detector is not None:
-                        predicted_after = self.predict(inputs)
-                        labels = labels if (
-                            algorithm.value != ContinuouLearningAlgorithm.ground_inferred) else inferred_labels
-                        for vt, vp in zip(labels, predicted_after):
-                            self.drift_detector.update(int(not vt == vp))
-                            if self.is_concept_drift:
-                                self.concept_react()
-
-                training_loss /= len(train_loader)
-                metric_train = training_loss
-                history['loss_train'].append(training_loss)
-                if metric is not None:
-                    metric_train = metric(training_true, self._parse_ypred(training_pred))
-                    history[f'{metric.__name__}_train'].append(metric_train)
-
-                eval_metric = metric_train
-
-                if val_loader:
-                    val_loss, val_pred, val_true = 0, None, None
-                    with torch.no_grad():
-                        for _, (a, b, _) in enumerate(val_loader):
-                            y_raw_val = self.model(self.safe_cast_input(a)).detach()
-                            if self.is_discrete:
-                                y_raw_val = y_raw_val.squeeze()
-                            val_loss += self.loss_fn(y_raw_val, self.safe_cast_input(b, is_y=True)).item()
-                            val_true = b if val_true is None else np.concatenate((val_true, b), axis=0)
-                            val_pred = y_raw_val.cpu() if val_pred is None else np.concatenate(
-                                (val_pred, y_raw_val.cpu()), axis=0)
-                    val_loss /= len(val_loader)
-                    history['loss_validation'].append(val_loss)
-                    metric_validation = val_loss
-                    if metric is not None:
-                        metric_validation = metric(val_true, self._parse_ypred(val_pred))
-                        history[f'{metric.__name__}_validation'].append(metric_validation)
-                    eval_metric = metric_validation
-
-                if monitori_ds:
-                    monitored_metrics.append(compute_metric_percategory(
-                        monitori_ds.y, self.predict(monitori_ds.X),
-                        monitori_ds._y, scorer=metric or accuracy_score))
-
-                latest_param = dict((k, v[-1]['Global'] if isinstance(v[-1], dict) else v[-1])
-                                    for k, v in history.items())
-                pbar.set_description(f'Epoch {i+1} {latest_param}', refresh=False)
-                pbar.update()
-
-                if not epochs_wo_improve:
-                    continue
-
-                cond = eval_metric > best_metric if higher_better else eval_metric < best_metric
-                if cond:
-                    current_epochs_wo_improve = 0
-                    best_metric = eval_metric
-                    best_state_dict = deepcopy(self.model.state_dict())
+                p = None
+                if learn_input.value == InputForLearn.oracle.value:
+                    inputs = inputs_oracle
+                elif learn_input.value == InputForLearn.client.value:
+                    inputs = inputs_client
+                elif learn_input.value == InputForLearn.mixed.value:
+                    p = np.random.permutation(inputs.shape[0]*2)
+                    inputs = torch.concatenate((inputs_client, inputs_oracle))[p]
+                    true_labels = true_labels.repeat(2)[p]
+                    # the following two operations might be an overkill,
+                    # think whether to perform only if ground_truth and knowledge_distill
+                    inputs_oracle = inputs_oracle.repeat(2)[p]
+                    inferred_labels = inferred_labels.repeat(2)[p]
                 else:
-                    current_epochs_wo_improve += 1
+                    raise ValueError(f'Unknown learn input {learn_input} {learn_input.value}')
 
-                if current_epochs_wo_improve == epochs_wo_improve:
-                    break
-            self.model.load_state_dict(best_state_dict)
+                if algorithm.value == ContinuouLearningAlgorithm.ground_inferred.value:
+                    predictions, loss = self.learn(inputs, inferred_labels, scaler=scaler)
+                elif algorithm.value == ContinuouLearningAlgorithm.ground_truth.value:
+                    predictions, loss = self.learn(inputs, true_labels, scaler=scaler)
+                elif algorithm.value == ContinuouLearningAlgorithm.knowledge_distillation.value:
+                    predictions, loss = self.learn_knowledge_distillation(
+                        oracle, inputs, inputs_oracle, true_labels, **learn_kwargs)
+                else:
+                    raise ValueError(f'Unknown algorithm {algorithm} {algorithm.value}')
+
+                if p:
+                    p = np.argsort(p)
+                    predictions = np.split(predictions[p], 2)[0]
+                    true_labels = np.split(true_labels[p], 2)[0]
+
+                training_loss += loss
+                training_pred = predictions if training_pred is None else np.concatenate(
+                    (training_pred, predictions), axis=0)
+                training_true = true_labels if training_true is None else np.concatenate(
+                    (training_true, true_labels), axis=0)
+
+                if self.drift_detector is not None:
+                    for vt, vp in zip(labels, self.predict(inputs_client)):
+                        self.drift_detector.update(int(not vt == vp))
+                        if self.is_concept_drift():
+                            if concept_react_func is not None:
+                                concept_react_func(self)
+
+            training_loss /= len(train_loader)
+            metric_train = training_loss
+            history['loss_train'].append(training_loss)
+            if metric is not None:
+                metric_train = metric(training_true, self._parse_ypred(training_pred))
+                history[f'{metric.__name__}_train'].append(metric_train)
+            eval_metric = metric_train
+
+            if val_loader:
+                val_loss, val_pred, val_true = 0, None, None
+                with torch.no_grad():
+                    for _, (a, b, _) in enumerate(val_loader):
+                        y_raw_val = self.model(self.safe_cast_input(a)).detach()
+                        if self.is_discrete:
+                            y_raw_val = y_raw_val.squeeze()
+                        val_loss += self.loss_fn(y_raw_val, self.safe_cast_input(b, is_y=True)).item()
+                        val_true = b if val_true is None else np.concatenate((val_true, b), axis=0)
+                        val_pred = y_raw_val.cpu() if val_pred is None else np.concatenate(
+                            (val_pred, y_raw_val.cpu()), axis=0)
+                val_loss /= len(val_loader)
+                history['loss_validation'].append(val_loss)
+                metric_validation = val_loss
+                if metric is not None:
+                    metric_validation = metric(val_true, self._parse_ypred(val_pred))
+                    history[f'{metric.__name__}_validation'].append(metric_validation)
+                eval_metric = metric_validation
+
+            if monitor_ds:
+                monitored_metrics.append(compute_metric_percategory(
+                    monitor_ds.y, self.predict(monitor_ds.X),
+                    monitor_ds._y, scorer=metric or accuracy_score))
+
+            latest_param = dict((k, v[-1]['Global'] if isinstance(v[-1], dict) else v[-1])
+                                for k, v in history.items())
+            pbar.set_description(f'Epoch {i+1} {latest_param}', refresh=False)
+
+            if not epochs_wo_improve:
+                continue
+
+            cond = eval_metric > best_metric if higher_better else eval_metric < best_metric
+            current_epochs_wo_improve += 1
+            if cond:
+                current_epochs_wo_improve = 0
+                best_metric = eval_metric
+                best_state_dict = deepcopy(self.model.state_dict())
+
+            if current_epochs_wo_improve == epochs_wo_improve:
+                break
+        self.model.load_state_dict(best_state_dict)
         if monitored_metrics:
             return history, monitored_metrics
         return history
@@ -362,7 +379,7 @@ class TorchModel(BaseModel):
             oracle: BaseModel = None, epochs: int = 1, batch_size: int = 'auto', idx_active_features: list[int] = None,
             idx_active_features_oracle: list[int] = None, learn_input: InputForLearn = InputForLearn.client,
             optimizer: torch.optim.Optimizer = None, loss_fn: torch.nn.modules.loss._Loss = None,
-            optim_kwargs=None, learn_kwargs=None):
+            optim_kwargs=None, learn_kwargs=None, concept_react_func=None):
         if optim_kwargs is None:
             optim_kwargs = {'weight_decay': 0.}
         if learn_kwargs is None:
@@ -372,66 +389,80 @@ class TorchModel(BaseModel):
         if idx_active_features_oracle is None:
             idx_active_features_oracle = []
 
+        scaler = None
+        if self.device == 'cuda':
+            torch.backends.cudnn.benchmark = True
+            torch.autograd.profiler.profile(enabled=False)
+            torch.autograd.profiler.emit_nvtx(enabled=False)
+            torch.autograd.set_detect_anomaly(mode=False)
+            scaler = torch.cuda.amp.GradScaler(enabled=True)
+
         self.check_optim_loss(optimizer, loss_fn, **optim_kwargs)
 
-        loader = DataLoader(data, batch_size=batch_size, shuffle=False, num_workers=os.cpu_count(),
-                            pin_memory=True, persistent_workers=False)
+        loader = DataLoader(data, batch_size=batch_size, shuffle=False,
+                            num_workers=os.cpu_count(), pin_memory=True, persistent_workers=False)
 
         y_preds, y_true, y_labels, drifts = np.empty(0), np.empty(0), np.empty(0), np.empty(0)
 
-        with tqdm(range(len(loader))) as pbar:
-            for inputs, true_labels, type_labels in loader:
-                type_labels = np.array(type_labels)
+        for (inputs, labels, type_labels) in tqdm(loader):
+            inputs_client = inputs_oracle = inputs
+            true_labels = labels
+            type_labels = np.array(type_labels)
 
+            if idx_active_features:
                 inputs_client = inputs.detach().clone()
-                inputs_oracle = inputs.detach().clone()
                 inputs_client[:, idx_active_features] = 0.
+
+            if idx_active_features_oracle:
+                inputs_oracle = inputs.detach().clone()
                 inputs_oracle[:, idx_active_features_oracle] = 0.
 
-                predicted = self.predict(inputs_client)
-                y_true = np.concatenate((y_true, true_labels), axis=0)
-                y_labels = np.concatenate((y_labels, type_labels), axis=0)
-                y_preds = np.concatenate((y_preds, self._parse_ypred(predicted)), axis=0)
+            if algorithm.value == ContinuouLearningAlgorithm.ground_inferred.value:
+                inferred_labels = oracle.predict(inputs_oracle)
 
-                if learn_input.value == InputForLearn.oracle.value:
-                    inputs = inputs_oracle
-                elif learn_input.value == InputForLearn.client.value:
-                    inputs = inputs_client
-                elif learn_input.value == InputForLearn.mixed.value:
-                    inputs = torch.concatenate((inputs_client, inputs_oracle))
-                    inputs_oracle = torch.concatenate((inputs_client, inputs_oracle))
-                    true_labels = torch.concatenate((true_labels, true_labels))
+            if learn_input.value == InputForLearn.oracle.value:
+                inputs = inputs_oracle
+            elif learn_input.value == InputForLearn.client.value:
+                inputs = inputs_client
+            elif learn_input.value == InputForLearn.mixed.value:
+                inputs = torch.concatenate((inputs_client, inputs_oracle))
+                inferred_labels = inferred_labels.repeat(2)
+                true_labels = true_labels.repeat(2)
+                inputs_oracle = inputs_oracle.repeat(2)
+            else:
+                raise ValueError(f'Unknown learn input {learn_input} {learn_input.value}')
+
+            for i in range(epochs):
+                p = np.random.permutation(len(true_labels))
+
+                if algorithm.value == ContinuouLearningAlgorithm.ground_inferred.value:
+                    predictions, _ = self.learn(inputs[p], inferred_labels[p], scaler=scaler)
+                elif algorithm.value == ContinuouLearningAlgorithm.ground_truth.value:
+                    predictions, _ = self.learn(inputs[p], true_labels[p], scaler=scaler)
+                elif algorithm.value == ContinuouLearningAlgorithm.knowledge_distillation.value:
+                    predictions, _ = self.learn_knowledge_distillation(
+                        oracle, inputs[p], inputs_oracle[p], true_labels[p], **learn_kwargs)
                 else:
-                    raise ValueError(f'Unknown learn input {learn_input} {learn_input.value}')
+                    raise ValueError(f'Unknown algorithm {algorithm} {algorithm.value}')
 
-                for _ in range(epochs):
-                    p = np.random.permutation(len(true_labels))
-                    true_labels = true_labels[p]
-                    inputs_oracle = inputs_oracle[p]
-                    inputs = inputs[p]
+                if i != 0:
+                    continue
 
-                    if algorithm.value == ContinuouLearningAlgorithm.ground_inferred.value:
-                        inferred_labels = oracle.predict(inputs_oracle)
-                        self.learn(inputs, inferred_labels)
-                    elif algorithm.value == ContinuouLearningAlgorithm.ground_truth.value:
-                        self.learn(inputs, true_labels)
-                    elif algorithm.value == ContinuouLearningAlgorithm.knowledge_distillation.value:
-                        self.learn_knowledge_distillation(
-                            oracle, inputs, inputs_oracle, true_labels, **learn_kwargs)
-                    else:
-                        raise ValueError(f'Unknown algorithm {algorithm} {algorithm.value}')
+                if learn_input.value == InputForLearn.mixed.value:
+                    p = np.argsort(p)
+                    predictions = np.split(predictions[p], 2)[0]
 
-                if self.drift_detector is not None:
-                    predicted_after = self.predict(inputs)
-                    labels = true_labels if (
-                        algorithm.value != ContinuouLearningAlgorithm.ground_inferred) else inferred_labels
-                    for j, (vt, vp) in enumerate(zip(labels, predicted_after)):
-                        self.drift_detector.update(int(not vt == vp))
-                        if self.is_concept_drift:
-                            drifts = np.append(drifts, len(y_preds) + j)
-                            self.concept_react()
+                y_true = np.concatenate((y_true, labels), axis=0)
+                y_labels = np.concatenate((y_labels, type_labels), axis=0)
+                y_preds = np.concatenate((y_preds, self._parse_ypred(predictions)), axis=0)
 
-                pbar.update()
+            if self.drift_detector is not None:
+                for j, (vt, vp) in enumerate(zip(labels, self.predict(inputs_client))):
+                    self.drift_detector.update(int(not vt == vp))
+                    if self.is_concept_drift():
+                        drifts = np.append(drifts, len(y_preds) + j)
+                        if concept_react_func is not None:
+                            concept_react_func(self)
 
         return y_preds, y_true, y_labels, drifts
 
@@ -469,7 +500,8 @@ class TorchModel(BaseModel):
             self.check_optim_loss(self.optimizer, self.loss_fn)
 
         inputs = self.safe_cast_input(inputs)
-        teacher_logits = torch.tensor(oracle.predict_proba(inputs_oracle))
+        teacher_logits = self.safe_cast_input(oracle.predict_proba(inputs_oracle), is_y=True)
+        print(teacher_logits)
         self.model.train()
         self.optimizer.zero_grad()
         predicted = self.model(inputs)
@@ -487,21 +519,30 @@ class TorchModel(BaseModel):
         loss.backward()
         self.optimizer.step()
         self.model.eval()
-        return predicted.detach(), loss.item()
+        return predicted.detach().cpu(), loss.item()
 
-    def learn(self, X: torch.Tensor, y: torch.Tensor):
+    def learn(self, X: torch.Tensor, y: torch.Tensor, scaler: torch.cuda.amp.GradScaler = None):
         if self.optimizer is None or self.loss_fn is None:
             self.check_optim_loss(self.optimizer, self.loss_fn)
-
         self.model.train()
         X, y = self.safe_cast_input(X), self.safe_cast_input(y, is_y=True)
         self.optimizer.zero_grad()
-        outputs = self.model(X)
-        if self.is_discrete:
-            outputs = outputs.squeeze()
-        loss: torch.Tensor = self.loss_fn(outputs, y)
-        loss.backward()
-        self.optimizer.step()
+        if scaler:
+            with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=True):
+                outputs = self.model(X)
+                if self.is_discrete:
+                    outputs = outputs.squeeze()
+                loss: torch.Tensor = self.loss_fn(outputs, y)
+            scaler.scale(loss).backward()
+            scaler.step(self.optimizer)
+            scaler.update()
+        else:
+            outputs = self.model(X)
+            if self.is_discrete:
+                outputs = outputs.squeeze()
+            loss: torch.Tensor = self.loss_fn(outputs, y)
+            loss.backward()
+            self.optimizer.step()
         self.model.eval()
         return outputs.detach().cpu(), loss.item()
 
@@ -541,12 +582,8 @@ class TorchModel(BaseModel):
         self.optimizer = optimizer
         self.loss_fn = loss_fn
 
-    @property
-    def is_concept_drift(self):
+    def is_concept_drift(self, *args, **kwargs):
         return self.drift_detector is not None and self.drift_detector.drift_detected
-
-    def concept_react(self):
-        ...
 
 
 class Mlp(TorchModel):
