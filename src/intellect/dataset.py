@@ -74,7 +74,10 @@ class Dataset:
         else:
             self.y = label
         if isinstance(label_type, str):
-            self._y = self.X.pop(label_type)
+            if label_type == label:
+                self._y = self.y.copy(deep=True)
+            else:
+                self._y = self.X.pop(label_type)
         else:
             self._y = label_type
         if shuffle:

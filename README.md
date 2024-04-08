@@ -5,6 +5,8 @@
 ![DocLint](https://github.com/s41m0n/intellect/actions/workflows/doc.yml/badge.svg)
 <!-- markdown-link-check-enable -->
 
+![Project Icon](./icon.jpeg)
+
 Integrative Network for Technology-Enabled Learning, Early-warning, and Continuous Training.
 
 This project unifies the following pillars:
@@ -17,17 +19,13 @@ This project unifies the following pillars:
 
 The project's focus is on leveraging technology and integrated networks to enable ongoing learning, early detection of anomalies, and continuous training.
 
-## Usage
-
-Work in progress.
-
 ## Cite
 
 Publications:
 
-1. [BigData23](./examples/first_publication_BIGDATA/): `S. Magnani, S. Braghin, A. Rawat, R. Doriguzzi-Corin, M. Purcell and D. Siracusa, "Pruning Federated Learning Models for Anomaly Detection in Resource-Constrained Environments," 2023 IEEE International Conference on Big Data (BigData), Sorrento, Italy, 2023, pp. 3274-3283, doi: 10.1109/BigData59044.2023.10386446`
-1. [Ongoing](./examples/second_publication_ONGOING/)
-1. [Ongoing](./examples/third_publication_ONGOING/)
+1. [BigData23](./examples/bigdata_2023/): `S. Magnani, S. Braghin, A. Rawat, R. Doriguzzi-Corin, M. Purcell and D. Siracusa, "Pruning Federated Learning Models for Anomaly Detection in Resource-Constrained Environments," 2023 IEEE International Conference on Big Data (BigData), Sorrento, Italy, 2023, pp. 3274-3283, doi: 10.1109/BigData59044.2023.10386446`
+1. [NetSoft24 (Ongoing)](./examples/netsoft_2024/)
+1. [Computer & Security (Ongoing)](./examples/computer_security_2024/)
 
 ## Acknowledgements
 
@@ -37,4 +35,4 @@ Publications:
 * @ambrishrawat, advisor and collaborator from the *Security and Privacy* unit at *IBM Research Europe*.
 * Liubov Nedoshivina, collaborator  from the *Security and Privacy* unit at *IBM Research Europe*.
 * @mkpurcell, head of the *Security and Privacy* unit at *IBM Research Europe*.
-* @seshutir, collaborator from *IBM Research Europe*.
+* @seshutir, collaborator from the *Interactive AI* unit at *IBM Research Europe*.

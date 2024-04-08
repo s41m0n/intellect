@@ -275,7 +275,7 @@ def dump(x: object, filename: str, **kwargs):
             return pickle.dump(x, fp)
 
     if filename.endswith('.h5'):
-        return x.to_hdf(filename, 'data', mode='w')
+        return x.to_hdf(filename, key='data', mode='w')
 
     if filename.endswith(('.txt', '.info')):
         with open(filename, 'w', encoding='UTF-8') as fp:
@@ -317,13 +317,10 @@ def load(filename: str, convert_cls=None, **kwargs) -> object:
         with open(filename, 'r', encoding='UTF-8') as fp:
             x = fp.read()
     else:
-        if os.path.isfile(filename + '.pkl'):
+        if not filename.endswith('.pkl'):
             filename += '.pkl'
-        if filename.endswith('.pkl'):
-            with open(filename, 'rb') as fp:
-                x = pickle.load(fp)
-        else:
-            raise ValueError("Don't know load method")
+        with open(filename, 'rb') as fp:
+            x = pickle.load(fp)
 
     if convert_cls:
         x = dataclass_from_dict(convert_cls, x)
@@ -389,8 +386,10 @@ class TimeoutIterator:
     def __next__(self):
         try:
             return next(self._iterator)
-        except (TimeoutError, StopIteration):
-            pass
+        except (TimeoutError, StopIteration, KeyboardInterrupt) as e:
+            signal.alarm(0)
+            if isinstance(e, KeyboardInterrupt):
+                raise e
 
         signal.alarm(0)
         raise StopIteration

@@ -28,7 +28,7 @@ def distance_l2(model: BaseEnhancedMlp, other: BaseEnhancedMlp, only_prunable: b
     return ret
 
 
-def sparsity(model: BaseEnhancedMlp) -> tuple[float, list[int, float]]:
+def sparsity(model: BaseEnhancedMlp, only_prunable: bool = True) -> tuple[float, list[int, float]]:
     """Function to compute the sparsity of a network
 
     Args:
@@ -39,7 +39,10 @@ def sparsity(model: BaseEnhancedMlp) -> tuple[float, list[int, float]]:
     """
     if model.prune_masks is None:
         return 0, []
-    single = [np.sum(model.intercepts_[i] == 0) + np.sum(k == 0) / k.size for i, k in enumerate(model.prune_masks)]
+    layers = model.prunable if only_prunable else range(len(model.coefs_))
+    single = [
+        (np.sum(model.intercepts_[i] == 0) + np.sum(model.prune_masks[i] == 0) / model.prune_masks[i].size)
+        for i in layers]
     return np.mean(single), single
 
 
@@ -51,20 +54,75 @@ def globally_unstructured_connections_l1(model: BaseEnhancedMlp, prune_ratio: fl
         prune_ratio (float): prune ratio between 0 and 1
 
     Returns:
-        BaseEnhancedMlp: the pruned model
+        BaseEnhancedMlp: the pruned model (original one with in-place modification)
     """
     check_is_fitted(model, msg='Model not fitted, fit before pruning')
-    new_model = model.clone(init=False)
-    new_model.prune_masks = [np.ones_like(k) for k in new_model.coefs_]
-    all_weights = np.concatenate([np.asarray(c).reshape(-1) for c in new_model.coefs_], axis=0)
+    model = model.clone(init=False)
+    model.prune_masks = [np.ones_like(k) for k in model.coefs_]
+    all_weights = np.concatenate([np.asarray(c).reshape(-1) for c in model.coefs_], axis=0)
+    # TODO: fix only_prunable
     k = round(len(all_weights) * prune_ratio)
     all_weights = np.absolute(all_weights)
     idx = all_weights.argsort()[:k]
     mask = np.ones_like(all_weights)
     mask[idx] = 0
     pointer = 0
-    for i, v in enumerate(new_model.coefs_):
+    for i, v in enumerate(model.coefs_):
         num_param = v.size
-        new_model.prune_masks[i] = mask[pointer: pointer + num_param].reshape(v.shape)
+        model.prune_masks[i] = mask[pointer: pointer + num_param].reshape(v.shape)
         pointer += num_param
-    return new_model
+    return model
+
+def globally_unstructured_connections_random(model: BaseEnhancedMlp, prune_ratio: float) -> BaseEnhancedMlp:
+    """Function to prune CONNECTION-UNSTRUCTURED with L1 norm
+
+    Args:
+        model (BaseEnhancedMlp): model to be pruned
+        prune_ratio (float): prune ratio between 0 and 1
+
+    Returns:
+        BaseEnhancedMlp: the pruned model (original one with in-place modification)
+    """
+    check_is_fitted(model, msg='Model not fitted, fit before pruning')
+    model = model.clone(init=False)
+    model.prune_masks = [np.ones_like(k) for k in model.coefs_]
+    flat_length = sum(len(np.asarray(c).reshape(-1)) for c in model.coefs_)
+    k = round(flat_length * prune_ratio)
+    # TODO: fix only_prunable
+    idx = np.random.choice(flat_length, k, replace=False)
+    mask = np.ones(flat_length)
+    mask[idx] = 0
+    pointer = 0
+    for i, v in enumerate(model.coefs_):
+        num_param = v.size
+        model.prune_masks[i] = mask[pointer: pointer + num_param].reshape(v.shape)
+        pointer += num_param
+    return model
+
+def globally_neurons_l1(model: BaseEnhancedMlp, prune_ratio: float, only_prunable: bool = True) -> BaseEnhancedMlp:
+    """Function to prune CONNECTION-UNSTRUCTURED with L1 norm
+
+    Args:
+        model (BaseEnhancedMlp): model to be pruned
+        prune_ratio (float): prune ratio between 0 and 1
+
+    Returns:
+        BaseEnhancedMlp: the pruned model (original one with in-place modification)
+    """
+    check_is_fitted(model, msg='Model not fitted, fit before pruning')
+    model = model.clone(init=False)
+    model.prune_masks = [np.ones_like(k) for k in model.coefs_]
+    all_weights = []
+    pruned_idx = model.prunable if only_prunable else list(range(len(model.coefs_)))
+    for i in pruned_idx:
+        for n_neuron in range(model.coefs_[i].shape[1]):
+            all_weights.append(np.absolute(model.coefs_[i][:, n_neuron]).sum())
+    k = round(len(all_weights) * prune_ratio)
+    idx = np.array(all_weights).argsort()[:k]
+    prev = 0
+    for i in pruned_idx:
+        for n_neuron in range(model.coefs_[i].shape[1]):
+            if prev + n_neuron in idx:
+                model.prune_masks[i][:, n_neuron] = 0.
+        prev += model.prune_masks[i].shape[1]
+    return model

@@ -20,20 +20,20 @@ L2_NORM = 2
 
 
 def get_all_pruning_algorithms():
-    return ("locally_structured_neurons_l1", "locally_structured_neurons_l2", "locally_structured_neurons_random",
-            "locally_structured_connections_l1", "locally_structured_connections_l2",
-            "locally_structured_connections_random",
-            "locally_unstructured_connections_l1", "locally_unstructured_connections_random",
-            "locally_structured_neurons_activation_l1", "locally_structured_neurons_activation_l2",
-            "locally_structured_neurons_activation_l1_for_subset",
-            "locally_structured_neurons_activation_l2_for_subset",
-            "globally_structured_neurons_l1", "globally_structured_neurons_l2", "globally_structured_neurons_random",
-            "globally_structured_connections_l1", "globally_structured_connections_l2",
-            "globally_structured_connections_random",
-            "globally_unstructured_connections_l1", "globally_unstructured_connections_random",
-            "globally_structured_neurons_activation_l1", "globally_structured_neurons_activation_l2",
-            "globally_structured_neurons_activation_l1_for_subset",
-            "globally_structured_neurons_activation_l2_for_subset")
+    return ('locally_structured_neurons_l1', 'locally_structured_neurons_l2', 'locally_structured_neurons_random',
+            'locally_structured_connections_l1', 'locally_structured_connections_l2',
+            'locally_structured_connections_random',
+            'locally_unstructured_connections_l1', 'locally_unstructured_connections_random',
+            'locally_structured_neurons_activation_l1', 'locally_structured_neurons_activation_l2',
+            'locally_structured_neurons_activation_l1_for_subset',
+            'locally_structured_neurons_activation_l2_for_subset',
+            'globally_structured_neurons_l1', 'globally_structured_neurons_l2', 'globally_structured_neurons_random',
+            'globally_structured_connections_l1', 'globally_structured_connections_l2',
+            'globally_structured_connections_random',
+            'globally_unstructured_connections_l1', 'globally_unstructured_connections_random',
+            'globally_structured_neurons_activation_l1', 'globally_structured_neurons_activation_l2',
+            'globally_structured_neurons_activation_l1_for_subset',
+            'globally_structured_neurons_activation_l2_for_subset')
 
 
 def get_pruning_algorithm(name):
@@ -46,12 +46,12 @@ def get_pruning_algorithm(name):
 
 def _helper_locally(
         model: nn.Module, layers: List[nn.Module],
-        amount, n=L1_NORM, dim=PRUNE_NEURONS_DIM, structured=False, name="weight", **_):
+        amount, n=L1_NORM, dim=PRUNE_NEURONS_DIM, structured=False, name='weight', **_):
     # dim=0 prune neuron, dim=1 prune connection.
     # when called with dim=0 it produces the same output of unstructured
     logger.info(
         f"Locally Pruning {'Neurons' if dim==0 else 'Connections'} {structured=}"
-        f"using {amount=} {n=} {dim=} and n.{len(layers)=}")
+        f'using {amount=} {n=} {dim=} and n.{len(layers)=}')
 
     if structured:
         if n == RANDOM:
@@ -59,26 +59,26 @@ def _helper_locally(
         elif n == L1_NORM or n == L2_NORM:
             [prune.ln_structured(k, name, amount=v, n=n, dim=dim) for k, v in zip(layers, amount)]
         else:
-            raise NotImplementedError(f"Norm n {n} not implemented")
+            raise NotImplementedError(f'Norm n {n} not implemented')
     else:
         if n == RANDOM:
             [prune.random_unstructured(k, name, amount=v) for k, v in zip(layers, amount)]
         elif n == L1_NORM:
             [prune.l1_unstructured(k, name, amount=v) for k, v in zip(layers, amount)]
         else:
-            raise NotImplementedError(f"Norm n {n} not implemented")
+            raise NotImplementedError(f'Norm n {n} not implemented')
     return model, layers
 
 
 def _helper_locally_structured_neurons_activation(
         model: nn.Module, layers: List[nn.Module],
-        amount, X: pd.DataFrame, n=L1_NORM, name="weight", subset_features: List[str] = [], **_):
+        amount, X: pd.DataFrame, n=L1_NORM, name='weight', subset_features: List[str] = [], **_):
     logger.info(
-        f"Locally Pruning Neurons looking for activation, length of subset provided {len(subset_features)=}"
-        f" {amount=} and n.{len(layers)=} layers")
+        f'Locally Pruning Neurons looking for activation, length of subset provided {len(subset_features)=}'
+        f' {amount=} and n.{len(layers)=} layers')
 
     if subset_features:
-        logger.info("Zeroing inactive features for subset")
+        logger.info('Zeroing inactive features for subset')
         X = X.copy(deep=True)
         X[X.columns.difference(subset_features)] = 0.
 
@@ -160,11 +160,11 @@ def locally_structured_neurons_activation_l2_for_subset(
 def _torch_missing_globally_structured(
         parameters, pruning_method, amount, dim=PRUNE_NEURONS_DIM, importance_scores=None, **kwargs):
     if not isinstance(parameters, Iterable):
-        raise TypeError("global_unstructured(): parameters is not an Iterable")
+        raise TypeError('global_unstructured(): parameters is not an Iterable')
 
     importance_scores = importance_scores if importance_scores is not None else {}
     if not isinstance(importance_scores, dict):
-        raise TypeError("global_unstructured(): importance_scores must be of type dict")
+        raise TypeError('global_unstructured(): importance_scores must be of type dict')
 
     to_look = int(not dim)
 
@@ -194,19 +194,19 @@ def _torch_missing_globally_structured(
 
     default_mask = torch.cat(
         [
-            tensor_to_shape(getattr(module, name + "_mask", torch.ones_like(getattr(module, name))))
+            tensor_to_shape(getattr(module, name + '_mask', torch.ones_like(getattr(module, name))))
             for (module, name) in parameters
         ], dim
     )
 
     container = prune.PruningContainer()
-    container._tensor_name = "temp"
+    container._tensor_name = 'temp'
     method = pruning_method(amount, dim=dim, **kwargs)
-    method._tensor_name = "temp"
-    if method.PRUNING_TYPE != "structured":
+    method._tensor_name = 'temp'
+    if method.PRUNING_TYPE != 'structured':
         raise TypeError(
             'Only "structured" PRUNING_TYPE supported for '
-            "the `pruning_method`. Found method {} of type {}".format(
+            'the `pruning_method`. Found method {} of type {}'.format(
                 pruning_method, method.PRUNING_TYPE
             )
         )
@@ -227,13 +227,13 @@ def _torch_missing_globally_structured(
 
 def _helper_globally(
         model: nn.Module, layers: List[nn.Module],
-        amount, method=prune.L1Unstructured, dim=PRUNE_CONNECTIONS_DIM, name="weight", **kwargs):
+        amount, method=prune.L1Unstructured, dim=PRUNE_CONNECTIONS_DIM, name='weight', **kwargs):
     logger.info(
-        f"Globally Pruning using {amount=} method={method.__name__} and n.{len(layers)=} layers")
+        f'Globally Pruning using {amount=} method={method.__name__} and n.{len(layers)=} layers')
 
     parameters = {(x, name) for x in layers}
 
-    if method.PRUNING_TYPE == "structured":
+    if method.PRUNING_TYPE == 'structured':
         _torch_missing_globally_structured(parameters, method, amount, dim=dim, **kwargs)
     else:
         prune.global_unstructured(parameters,
@@ -246,10 +246,10 @@ def _helper_globally_structured_neurons_activation(
         model: nn.Module, layers: List[nn.Module],
         amount, X: pd.DataFrame, n, subset_features: List[str] = [], **_):
     logger.info(
-        f"Globally Pruning Neurons looking for activation, length of subset provided {len(subset_features)=}"
-        f" {amount=} and n.{len(layers)=} layers {n=}")
+        f'Globally Pruning Neurons looking for activation, length of subset provided {len(subset_features)=}'
+        f' {amount=} and n.{len(layers)=} layers {n=}')
     if subset_features:
-        logger.info("Zeroing inactive features for subset")
+        logger.info('Zeroing inactive features for subset')
         X = X.copy(deep=True)
         X[X.columns.difference(subset_features)] = 0.
 

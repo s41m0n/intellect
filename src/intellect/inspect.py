@@ -3,7 +3,6 @@ Module with utility functions for reproducibility (seeds) and inspecting the sta
 of the objects and system.
 """
 import io
-import os
 import random
 import sys
 
@@ -20,17 +19,15 @@ def set_seed(default=42) -> float:
     Returns:
         float: the seed set.
     """
-    seed = int(os.environ.get('PYTHONHASHSEED', default))
-
-    np.random.seed(seed)
-    random.seed(seed)
+    np.random.seed(default)
+    random.seed(default)
 
     try:
         import torch
-        torch.manual_seed(seed)
+        torch.manual_seed(default)
     except ModuleNotFoundError:
         pass
-    return seed
+    return default
 
 
 def memory_stats() -> dict[str, object]:

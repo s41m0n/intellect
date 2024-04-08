@@ -15,8 +15,8 @@ from .dataset import Dataset
 from .model.base import BaseModel
 
 
-def knowledge_loss_gain_score(df: pd.DataFrame, func_weights: tuple[float] = None,
-                              ignore_categories: list[str] = None) -> pd.Series:
+def knowledge_loss_gain_score(df: pd.DataFrame, eval_after, eval_before, seen_categories=None,
+                              func_weights: tuple[float] = None, ignore_categories: list[str] = None) -> pd.Series:
     """Function to measure with different indicators the knowledge loss/gain with respect to
     a baseline scenario, also provided in the dataframe.
 
@@ -37,39 +37,44 @@ def knowledge_loss_gain_score(df: pd.DataFrame, func_weights: tuple[float] = Non
     if func_weights is None:
         func_weights = [0.25] * 4
 
-    target = 'During Test' if 'During Test' in df.index else 'Finetune Before'
-    tmp = df.loc[target]
-    seen = tmp[~tmp.isna()].index.values
-    unseen = tmp[tmp.isna()].index.values
+    df = df[df.columns.difference(['Global'])]
+    if seen_categories is None:
+        seen_categories = df.columns.values
+
+    seen = df[df.columns.intersection(seen_categories)].columns.values
+    unseen = df[df.columns.difference(seen_categories)].columns.values
 
     seen_proportions = pd.Series([1/len(seen)]*len(seen), index=seen)
-    unseen_proportions = pd.Series([1/len(unseen)]*len(unseen), index=unseen)
-
-    diff = df.loc['Validation After'] - df.loc['Validation Before']
-    diff_seen = diff[seen]
-    diff_unseen = diff[unseen]
-
-    loss_seen = diff_seen[diff_seen < 0]
-    loss_seen = (loss_seen*seen_proportions).sum()
-    gain_seen = diff_seen[diff_seen > 0]
-    gain_seen = (gain_seen*seen_proportions).sum()
-
-    loss_unseen = gain_unseen = 0
     if unseen.size:
-        loss_unseen = diff_unseen[diff_unseen < 0]
-        loss_unseen = (loss_unseen*unseen_proportions).sum()
-        gain_unseen = diff_unseen[diff_unseen > 0]
-        gain_unseen = (gain_unseen*unseen_proportions).sum()
-    else:
-        to_add = func_weights[2] / 2 + func_weights[3] / 2
-        func_weights[2] = func_weights[3] = 0.
-        func_weights[0] += to_add
-        func_weights[1] += to_add
+        unseen_proportions = pd.Series([1/len(unseen)]*len(unseen), index=unseen)
 
-    factors = [loss_seen, gain_seen, loss_unseen, gain_unseen]
+    def f(after, before):
+        diff = df.loc[after] - df.loc[before]
+        diff_seen = diff[seen]
+        diff_unseen = diff[unseen]
 
-    return pd.Series([sum(factors[i] * func_weights[i] for i in range(len(factors)))] + factors,
-                     index=['Func', 'Loss Seen', 'Gain Seen', 'Loss Unseen', 'Gain Unseen'])
+        loss_seen = diff_seen[diff_seen < 0]
+        loss_seen = (loss_seen*seen_proportions).sum()
+        gain_seen = diff_seen[diff_seen > 0]
+        gain_seen = (gain_seen*seen_proportions).sum()
+
+        loss_unseen = gain_unseen = 0
+        if unseen.size:
+            loss_unseen = diff_unseen[diff_unseen < 0]
+            loss_unseen = (loss_unseen*unseen_proportions).sum()
+            gain_unseen = diff_unseen[diff_unseen > 0]
+            gain_unseen = (gain_unseen*unseen_proportions).sum()
+        else:
+            to_add = func_weights[2] / 2 + func_weights[3] / 2
+            func_weights[2] = func_weights[3] = 0.
+            func_weights[0] += to_add
+            func_weights[1] += to_add
+
+        factors = [loss_seen, gain_seen, loss_unseen, gain_unseen]
+
+        return pd.Series([sum(factors[i] * func_weights[i] for i in range(len(factors)))] + factors,
+                         index=['Func', 'Loss Seen', 'Gain Seen', 'Loss Unseen', 'Gain Unseen'])
+    return f(eval_after, eval_before)
 
 def safe_division(dividend: Number, divisor: Number) -> float:
     """Perform safe division between two numbers, returning
@@ -135,7 +140,7 @@ def compute_metric_percategory(
 
 
 def compute_metric_incremental(
-        ytrue: list, ypred: list, metric: metrics.base | str = 'Accuracy') -> list[float]:
+        ytrue: list, ypred: list, metric: metrics.base.Metric | str = 'Accuracy') -> list[float]:
     """Function to compute the metric incrementally point after point.
 
     Args:

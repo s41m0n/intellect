@@ -136,8 +136,9 @@ def rank_principal_component_analysis(model: BaseModel, data: Dataset, current_f
 
 
 def sequential_backward_elimination(
-        model: BaseModel, data: Dataset, rank_algorithm: Callable = None, fixed_rank: dict[str, float] = None,
-        metric: Callable = accuracy_score, **kwargs) -> tuple[dict[str, float], list[float], list[str]]:
+        model: BaseModel, data: Dataset, rank_algorithm: Callable = None,
+        fixed_rank: dict[str, float] = None, metric: Callable = accuracy_score,
+        remove_zero_first=True, **kwargs) -> Iterator[tuple[dict[str, float], list[float], list[str]]]:
     """Function to perform Sequential Backward Elimination with the provided info.
 
     Args:
@@ -154,8 +155,8 @@ def sequential_backward_elimination(
         ValueError: when at least one among fixed_rank and rank_algorithm is not specified
 
     Returns:
-        tuple[dict[str, float], list[float], list[str]]: tuple with ranks, list of scores, and list
-            of removed features at each step.
+        Iterator[tuple[dict[str, float], list[float], list[str]]]: tuple with ranks, list of scores,
+            and list of removed features at each step.
     """
     if fixed_rank is None and rank_algorithm is None:
         raise ValueError('One among fixed_rank and rank_algorithm must be different than None')
@@ -163,7 +164,7 @@ def sequential_backward_elimination(
     data = data.clone()
     current_features = list(fixed_rank.keys()) if fixed_rank else data.X.columns.values.tolist()
     while current_features:
-        score = metric(data.y.values, model.predict(data.X.values))
+        score = metric(data.y.values, model.predict(data.X))
 
         if fixed_rank is None:
             scores = rank_algorithm(
@@ -171,7 +172,15 @@ def sequential_backward_elimination(
         else:
             scores = {k: v for k, v in fixed_rank.items() if k in current_features}
 
-        worst_feature, _ = min(scores.items(), key=lambda x: x[1])
+        zero_keys = None
+        if remove_zero_first:
+            zero_keys = [k for k, v in scores.items() if v == 0.]
+
+        if zero_keys:
+            worst_feature = zero_keys[-1]
+        else:
+            worst_feature, _ = min(scores.items(), key=lambda x: x[1])
+
         current_features.remove(worst_feature)
         data.X[worst_feature] = 0.
         yield score, worst_feature, scores
@@ -297,14 +306,12 @@ def prune_and_subset_search(
         baseline = metric(ds.y, model.predict(ds.X))
     for ratio in prune_ratios:
         pruned = prune_algorithm(model, ratio, *args, **kwargs)
-        accepted_res = {
-            x: v for x, v,
-            cond
-            in
-            subset_search(
+        for x, v, cond in subset_search(
                 pruned, ds, subset_ratio, subset_attempts, performance_drop_ratio=performance_drop_ratio,
-                rank=rank, baseline=baseline) if cond is True}
-        yield ratio, accepted_res
+                rank=rank, baseline=baseline):
+            if not cond:
+                continue
+            yield ratio, x, v
 
 def subset_search_and_prune(
         model: BaseModel, prune_algorithm: Callable, ds: Dataset, prune_ratios: list[float], subset_ratio: float,
@@ -332,17 +339,17 @@ def subset_search_and_prune(
             and the pruning ratio accepted. Multiple ratios are provided in different return values.
     """
 
-    if isinstance(prune_ratios, (float)):
+    if isinstance(prune_ratios, float):
         prune_ratios = [prune_ratios]
 
     if baseline is None:
         baseline = metric(ds.y, model.predict(ds.X))
 
-    accepted_res = [x for x, _, cond in subset_search(
-        model, ds, subset_ratio, subset_attempts, performance_drop_ratio=performance_drop_ratio,
-        rank=rank, baseline=baseline) if cond is True]
-
-    for k in accepted_res:
+    for k, _, cond in subset_search(
+            model, ds, subset_ratio, subset_attempts, performance_drop_ratio=performance_drop_ratio,
+            rank=rank, baseline=baseline):
+        if not cond:
+            continue
         for ratio in prune_ratios:
             pruned = prune_algorithm(model, ratio, *args, **kwargs)
             score = metric(ds.y, pruned.predict(ds.X))

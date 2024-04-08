@@ -17,10 +17,10 @@ from .model import test_model_on_subset
 
 
 def get_all_ranking_algorithms():
-    return ("autogluon_sbe", "autogluon_sfs",
-            "custom_sbe", "custom_sfs",
-            "pca_sbe", "pca_sfs",
-            "rf_sbe", "rf_sfs")
+    return ('autogluon_sbe', 'autogluon_sfs',
+            'custom_sbe', 'custom_sfs',
+            'pca_sbe', 'pca_sfs',
+            'rf_sbe', 'rf_sfs')
 
 
 def get_ranking_algorithm(name):
@@ -32,13 +32,13 @@ def autogluon_sbe(
         predictor: TabularPredictor = None, model_name=None,
         time_limit=None, only_last=False, num_shuffle_sets=10, **_):
 
-    if "Label" not in X:
-        X["Label"] = y
+    if 'Label' not in X:
+        X['Label'] = y
     scores = predictor.feature_importance(
         X, features=current_features[-1:] if only_last else current_features, model=model_name,
         time_limit=time_limit, include_confidence_band=True, num_shuffle_sets=num_shuffle_sets)
-    scores.index.name = "ID"
-    return scores["importance"].to_dict()
+    scores.index.name = 'ID'
+    return scores['importance'].to_dict()
 
 
 def autogluon_sfs(
@@ -63,7 +63,7 @@ def custom_sbe(
         X: pd.DataFrame, y: pd.Series, current_features: List[str],
         model: TabularNeuralNetTorchModel = None,
         predictor: TabularPredictor = None,
-        cpus=None, eval_metric="accuracy", **_):
+        cpus=None, eval_metric='accuracy', **_):
     baseline = test_model_on_subset(predictor, X, y, model, subset=current_features)[eval_metric]
 
     scores = {}
@@ -80,7 +80,7 @@ def custom_sfs(
         X: pd.DataFrame, y: pd.Series, current_features: List[str],
         model: TabularNeuralNetTorchModel = None,
         predictor: TabularPredictor = None,
-        cpus=None, eval_metric="accuracy", **_):
+        cpus=None, eval_metric='accuracy', **_):
     remaining = [x for x in X.columns.values if x not in current_features]
 
     baseline = test_model_on_subset(predictor, X, y, model, subset=current_features)[eval_metric]
@@ -127,7 +127,7 @@ def pca_sfs(
 
 def rf_sbe(
         X: pd.DataFrame, y: pd.Series, current_features: List[str],
-        only_last=False, cpus=None, estimators=100, depth=7, features="sqrt", criterion="gini", **_):
+        only_last=False, cpus=None, estimators=100, depth=7, features='sqrt', criterion='gini', **_):
     positions = [i for i, x in enumerate(X.columns.values) if x in current_features]
 
     rf = RandomForestClassifier(n_estimators=estimators, max_depth=depth,

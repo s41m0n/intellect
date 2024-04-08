@@ -25,7 +25,7 @@ from autogluon.tabular.models.tabular_nn.torch.tabular_nn_torch import \
 from autogluon.tabular.predictor import TabularPredictor
 
 SAFE_CPU_PERCENTAGE = 0.7
-DEFAULT_PLOT_STYLE = os.path.join(os.path.dirname(__file__), "presentation.mplstyle")
+DEFAULT_PLOT_STYLE = os.path.join(os.path.dirname(__file__), 'presentation.mplstyle')
 
 
 def get_default_cpu_number():
@@ -57,7 +57,7 @@ def load_model_from_predictor(model_dir: str):
 
 def set_seed(default=0):
     """Function for setting the seed"""
-    seed = int(os.environ.get("PYTHONHASHSEED", default))
+    seed = int(os.environ.get('PYTHONHASHSEED', default))
 
     np.random.seed(seed)
     random.seed(seed)
@@ -83,7 +83,7 @@ def create_dir(name: str, overwrite=False):
         if overwrite is None:
             pass
         elif overwrite is False:
-            os.rename(name, name + '_backup_' + datetime.now().strftime("%m-%d-%Y_%H-%M-%S"))
+            os.rename(name, name + '_backup_' + datetime.now().strftime('%m-%d-%Y_%H-%M-%S'))
             os.makedirs(name)
         elif overwrite is True:
             shutil.rmtree(name)
@@ -102,7 +102,7 @@ def get_logger(name: str, filepath: str = None, log_level: int = logging.INFO) -
     formatter = logging.Formatter(
         '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     if filepath and not any(isinstance(x, logging.FileHandler) for x in logger.handlers):
-        handlers.append(logging.FileHandler(filepath, mode="w"))
+        handlers.append(logging.FileHandler(filepath, mode='w'))
     for handle in handlers:
         handle.setLevel(log_level)
         handle.setFormatter(formatter)
@@ -151,8 +151,8 @@ class CDataJSONEncoder(JSONEncoder):
 
     def __init__(self, *args, **kwargs):
         # using this class without indentation is pointless
-        if kwargs.get("indent") is None:
-            kwargs.update({"indent": 1})
+        if kwargs.get('indent') is None:
+            kwargs.update({'indent': 1})
         super().__init__(*args, **kwargs)
         self.indentation_level = 0
 
@@ -162,25 +162,25 @@ class CDataJSONEncoder(JSONEncoder):
 
         if isinstance(o, (list, tuple)):
             if self._put_on_single_line(o):
-                return "[" + ", ".join(self.encode(el) for el in o) + "]"
+                return '[' + ', '.join(self.encode(el) for el in o) + ']'
             self.indentation_level += 1
             output = [self.indent_str + self.encode(el) for el in o]
             self.indentation_level -= 1
-            return "[\n" + ",\n".join(output) + "\n" + self.indent_str + "]"
+            return '[\n' + ',\n'.join(output) + '\n' + self.indent_str + ']'
 
         if isinstance(o, dict):
             if o:
                 if self._put_on_single_line(o):
-                    return "{ " + ", ".join(f"{self.encode(k)}: {self.encode(el)}" for k, el in o.items()) + " }"
+                    return '{ ' + ', '.join(f'{self.encode(k)}: {self.encode(el)}' for k, el in o.items()) + ' }'
                 self.indentation_level += 1
                 output = [
-                    self.indent_str + f"{json.dumps(k)}: {self.encode(v)}" for k, v in o.items()]
+                    self.indent_str + f'{json.dumps(k)}: {self.encode(v)}' for k, v in o.items()]
                 self.indentation_level -= 1
-                return "{\n" + ",\n".join(output) + "\n" + self.indent_str + "}"
-            return "{}"
+                return '{\n' + ',\n'.join(output) + '\n' + self.indent_str + '}'
+            return '{}'
 
         if isinstance(o, str):  # escape newlines
-            o = o.replace("\n", "\\n")
+            o = o.replace('\n', '\\n')
             return f'"{o}"'
         return json.dumps(o)
 
@@ -198,20 +198,20 @@ class CDataJSONEncoder(JSONEncoder):
         if isinstance(obj, dict):
             return not any(isinstance(el, self.CONTAINER_TYPES) for el in obj.values())
 
-        raise ValueError(f"No primitive for {obj}")
+        raise ValueError(f'No primitive for {obj}')
 
     @ property
     def indent_str(self) -> str:
         """Indent the string according to the indentation level set"""
 
         if isinstance(self.indent, int):
-            return " " * (self.indentation_level * self.indent)
+            return ' ' * (self.indentation_level * self.indent)
 
         if isinstance(self.indent, str):
             return self.indentation_level * self.indent
 
         raise ValueError(
-            f"indent must either be of type int or str (is: {type(self.indent)})")
+            f'indent must either be of type int or str (is: {type(self.indent)})')
 
     def default(self, o):
         if inspect.isclass(o):
@@ -254,7 +254,7 @@ class CDataJSONEncoder(JSONEncoder):
             return result
 
         if is_dataclass(o):
-            if hasattr(o, "to_json"):
+            if hasattr(o, 'to_json'):
                 return o.to_json()
             return {k.name: self.default(getattr(o, k.name)) for k in fields(o)}
 
@@ -264,7 +264,7 @@ class CDataJSONEncoder(JSONEncoder):
             return {k: self.default(v) for k, v in o.items()}
 
         if isinstance(o, tuple):
-            if hasattr(o, "_asdict"):
+            if hasattr(o, '_asdict'):
                 return self.default(o._asdict())
             return [self.default(e) for e in o]
 

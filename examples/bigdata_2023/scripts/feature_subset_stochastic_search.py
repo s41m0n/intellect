@@ -33,8 +33,8 @@ def get_combinations(trials, all_features, rank_file, size, best_list, is_weight
     all_combs: Dict[Tuple, float] = {}
     n_all_combs = math.comb(len(all_features), n_curr_features)
     logger.info(
-        f"All possible combinations are {n_all_combs=}"
-        f" as {n_curr_features=} and {len(all_features)=}")
+        f'All possible combinations are {n_all_combs=}'
+        f' as {n_curr_features=} and {len(all_features)=}')
     best_list = sorted(best_list, reverse=True)
 
     for i, b in enumerate(best_list):
@@ -63,8 +63,8 @@ def get_combinations(trials, all_features, rank_file, size, best_list, is_weight
             current_max_combination_with_best)
 
         taken_this_it = 0
-        logger.info(f"{b=} {n_best=} {current_max_combination_with_best=} {len_before_it=}"
-                    f" {n_left_attempt=} {n_remaining_features=}")
+        logger.info(f'{b=} {n_best=} {current_max_combination_with_best=} {len_before_it=}'
+                    f' {n_left_attempt=} {n_remaining_features=}')
         while len(all_combs) < len_before_it + n_left_attempt:
             news = tuple(sorted(np.random.choice(remaining__features, n_remaining_features,
                          p=remaining_weights, replace=False).tolist() + constant_features))
@@ -83,64 +83,64 @@ def search(
     global logger
     set_seed()
 
-    logger.info("Loading the model")
+    logger.info('Loading the model')
     model, predictor, _ = load_model_from_predictor(os.path.join(directory, os.pardir))
 
-    logger.info("Loading the data")
+    logger.info('Loading the data')
     X = pd.read_csv(
         os.path.join(directory, os.pardir, os.pardir,
-                     os.pardir, os.pardir, os.pardir, "finetune.csv"),
-        index_col="ID")
-    y = X.pop("Label")
+                     os.pardir, os.pardir, os.pardir, 'finetune.csv'),
+        index_col='ID')
+    y = X.pop('Label')
 
     store_path = os.path.join(
         directory, f"feature_subset_stochastic_search_{'weighted' if weighted else 'random'}",
-        f"feature_subsets_{subset_size:.2f}s")
+        f'feature_subsets_{subset_size:.2f}s')
     create_dir(store_path, overwrite=False)
 
-    rank_file = pd.read_csv(os.path.join(directory, "feature_importance.csv"), index_col="ID")
+    rank_file = pd.read_csv(os.path.join(directory, 'feature_importance.csv'), index_col='ID')
 
-    logger.info("Computing Combinations")
+    logger.info('Computing Combinations')
     all_combs = get_combinations(attempts, X.columns.values, rank_file, subset_size,
                                  best, weighted)
     pd.DataFrame(
-        {"best": [v for v in all_combs.values()],
-         "features": [str(tuple(x)) for x in all_combs]},
-        index=pd.Index(range(len(all_combs)), name="ID")).to_csv(os.path.join(store_path, "subsets.csv"))
+        {'best': [v for v in all_combs.values()],
+         'features': [str(tuple(x)) for x in all_combs]},
+        index=pd.Index(range(len(all_combs)), name='ID')).to_csv(os.path.join(store_path, 'subsets.csv'))
 
     res = pd.DataFrame()
-    logger.info("Launching test jobs")
+    logger.info('Launching test jobs')
     with ThreadPool(processes=cpus) as pool, tqdm(total=len(all_combs)) as pbar:
         for i, x in enumerate(
             pool.imap(
                 functools.partial(test_model_on_subset, predictor, X, y, model),
                 all_combs.keys())):
-            res = pd.concat((res, pd.DataFrame(x, index=pd.Index([i], name="ID"))))
+            res = pd.concat((res, pd.DataFrame(x, index=pd.Index([i], name='ID'))))
             pbar.update()
     res.sort_values(by=metric, inplace=True, ascending=False)
-    res.to_csv(os.path.join(store_path, "leaderboard.csv"))
+    res.to_csv(os.path.join(store_path, 'leaderboard.csv'))
 
 
-@click.command(help="Run the search of the subsets for the given size",
+@click.command(help='Run the search of the subsets for the given size',
                context_settings={'show_default': True})
-@click.option("--directory", type=str, required=True,
-              help="working directory with the greedy ranking of the features")
-@click.option("--subset-size", type=float, required=True,
-              help="percentage size of the subset to look for")
-@click.option("--left-policy", type=click.Choice(["random", "weighted"], case_sensitive=False),
-              help="whether to select remaining features randomly or weighted", default="random")
-@click.option("--best", type=float, multiple=True,
+@click.option('--directory', type=str, required=True,
+              help='working directory with the greedy ranking of the features')
+@click.option('--subset-size', type=float, required=True,
+              help='percentage size of the subset to look for')
+@click.option('--left-policy', type=click.Choice(['random', 'weighted'], case_sensitive=False),
+              help='whether to select remaining features randomly or weighted', default='random')
+@click.option('--best', type=float, multiple=True,
               default=np.round(np.linspace(0., 1., 21, endpoint=True), 2).tolist(),
-              help="percentage size of the best features to keep from greedy search")
+              help='percentage size of the best features to keep from greedy search')
 @click.option('--cpus', type=int, default=get_default_cpu_number(),
-              help="number of CPU cores to assign")
+              help='number of CPU cores to assign')
 @click.option('--attempts', type=int, default=1000,
-              help="number of subsets of the given size to look for")
+              help='number of subsets of the given size to look for')
 @click.option('--metric', type=click.Choice(get_scorer_names(), case_sensitive=False),
-              help="evaluation metric", default="accuracy")
+              help='evaluation metric', default='accuracy')
 def main(*args, **kwargs):
     search(*args, **kwargs)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
