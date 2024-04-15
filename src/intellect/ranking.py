@@ -12,6 +12,7 @@ from sklearn.metrics import accuracy_score
 
 from .dataset import Dataset
 from .model.base import BaseModel
+from .scoring import compute_metric_percategory
 
 
 def rank_metric_zero(
@@ -164,7 +165,7 @@ def sequential_backward_elimination(
     data = data.clone()
     current_features = list(fixed_rank.keys()) if fixed_rank else data.X.columns.values.tolist()
     while current_features:
-        score = metric(data.y.values, model.predict(data.X))
+        score = compute_metric_percategory(data.y.values, model.predict(data.X), data._y, scorer=metric)
 
         if fixed_rank is None:
             scores = rank_algorithm(
@@ -187,8 +188,8 @@ def sequential_backward_elimination(
 
 def subset_search(
         model: BaseModel, ds: Dataset, ratio: float, attempts: int,
-        rank: dict[str, float] = None, metric: Callable = accuracy_score, performance_drop_ratio: float = None,
-        baseline: float = None, stuck_guard: int = 1000) -> Iterator[tuple[list[str], float, bool]]:
+        rank: dict[str, float] = None, metric: Callable = accuracy_score, baseline: float = None,
+        stuck_guard: int = 1000, with_score=True) -> Iterator[tuple[list[str], float]]:
     """Function to perform only subset search given a classifier.
 
     Args:
@@ -200,8 +201,6 @@ def subset_search(
             all the available features in the dataset. If not None, then
             a weighted random search of the subset is performed. Defaults to None.
         metric (Callable, optional): evaluation metric to be used. Defaults to accuracy_score.
-        performance_drop_ratio (float, optional): maximum ratio of
-            performance drop using the provided metric. Defaults to None.
         baseline (float, optional): baseline value to which refer during the computation
             of the performance drop. Defaults to None.
         stuck_guard (int, optional): maximum attempts to randomly pick a new
@@ -215,13 +214,11 @@ def subset_search(
                     in the subset, the metric score achieved and whether is accepted or
                     not with respect to the performance drop ratio value provided.
     """
-    if baseline is None:
-        baseline = metric(ds.y, model.predict(ds.X))
-
     weights = None
     if rank is not None:
         weights = np.array([rank[k] for k in ds.features])
         weights += np.abs(np.min(weights))
+        weights += np.min(weights[np.nonzero(weights)])/2
         weights = weights/weights.sum()
 
     explored_set_names = {}
@@ -234,15 +231,15 @@ def subset_search(
             raise ValueError(f'Unable to find a subset within the number {stuck_guard=}')
         explored_set_names[choices] = True
         tmp = ds.filter_features(choices, default=0)
-        score = metric(tmp.y, model.predict(tmp.X))
-        is_accepted = performance_drop_ratio is None or (score >= (1-performance_drop_ratio) * baseline).item()
-        yield choices, score, is_accepted
+        score = None
+        if with_score:
+            score = compute_metric_percategory(tmp.y, model.predict(tmp.X), tmp._y, scorer=metric)
+        yield choices, score
 
 
 def prune_search(
         model: BaseModel, ds: Dataset, prune_algorithm: Callable, prune_ratios: list[float], *args,
-        metric: Callable = accuracy_score, performance_drop_ratio: float = None,
-        baseline: float = None, **kwargs) -> Iterator[tuple[float, float, bool]]:
+        metric: Callable = accuracy_score, with_score=True, **kwargs) -> Iterator[tuple[float, float]]:
     """Function to perform only the pruning of a given classifier.
 
     Args:
@@ -263,20 +260,17 @@ def prune_search(
     if isinstance(prune_ratios, (float)):
         prune_ratios = [prune_ratios]
 
-    if baseline is None:
-        baseline = metric(ds.y, model.predict(ds.X))
     for ratio in prune_ratios:
         pruned = prune_algorithm(model, ratio, *args, **kwargs)
-        score = metric(ds.y, pruned.predict(ds.X))
-
-        is_accepted = performance_drop_ratio is None or (score >= (1 - performance_drop_ratio) * baseline).item()
-        yield ratio, score, is_accepted
+        score = None
+        if with_score:
+            score = compute_metric_percategory(ds.y, pruned.predict(ds.X), ds._y, scorer=metric)
+        yield ratio, score
 
 def prune_and_subset_search(
         model: BaseModel, prune_algorithm: Callable, ds: Dataset, prune_ratios: list[float],
         subset_ratio: float, subset_attempts: int, *args, rank: dict[str, float] = None,
-        metric: Callable = accuracy_score, baseline: float = None,
-        performance_drop_ratio: float = None, **kwargs) -> Iterator[tuple[float, dict[tuple[str], float]]]:
+        metric: Callable = accuracy_score, ** kwargs) -> Iterator[tuple[float, dict[tuple[str], float]]]:
     """Function to perform jointly (a) model pruning and then (b) the feature subset search.
 
     Args:
@@ -290,8 +284,6 @@ def prune_and_subset_search(
             all the available features in the dataset. If not None, then
             a weighted random search of the subset is performed. Defaults to None.
         metric (Callable, optional): the evaluation metric. Defaults to accuracy_score.
-        baseline (float, optional): baseline value to which consider the performance drop. Defaults to None.
-        performance_drop_ratio (float, optional): max accepted drop in the performance. Defaults to None.
 
     Yields:
         Iterator[tuple[float, dict[tuple[str], float]]]: for each value, returns the prune ratio,
@@ -302,22 +294,16 @@ def prune_and_subset_search(
     if isinstance(prune_ratios, (float)):
         prune_ratios = [prune_ratios]
 
-    if baseline is None:
-        baseline = metric(ds.y, model.predict(ds.X))
     for ratio in prune_ratios:
         pruned = prune_algorithm(model, ratio, *args, **kwargs)
-        for x, v, cond in subset_search(
-                pruned, ds, subset_ratio, subset_attempts, performance_drop_ratio=performance_drop_ratio,
-                rank=rank, baseline=baseline):
-            if not cond:
-                continue
+        for x, v in subset_search(
+                pruned, ds, subset_ratio, subset_attempts, metric=metric, rank=rank):
             yield ratio, x, v
 
 def subset_search_and_prune(
         model: BaseModel, prune_algorithm: Callable, ds: Dataset, prune_ratios: list[float], subset_ratio: float,
         subset_attempts: int, *args, rank: dict[str, float] = None, metric: Callable = accuracy_score,
-        baseline: float = None, performance_drop_ratio: float = None, **kwargs) -> Iterator[
-            tuple[list[str], float, float]]:
+        **kwargs) -> Iterator[tuple[list[str], float, float]]:
     """Function to perform jointly (a) the feature subset search and then (b) the pruning of the classifier.
 
     Args:
@@ -331,8 +317,6 @@ def subset_search_and_prune(
             all the available features in the dataset. If not None, then
             a weighted random search of the subset is performed. Defaults to None.
         metric (Callable, optional): the evaluation metric. Defaults to accuracy_score.
-        baseline (float, optional): baseline value to which consider the performance drop. Defaults to None.
-        performance_drop_ratio (float, optional): max accepted drop in the performance. Defaults to None.
 
     Yields:
         Iterator[tuple[list[str], float, float]]: list with active features for the subset, the metric score,
@@ -342,18 +326,10 @@ def subset_search_and_prune(
     if isinstance(prune_ratios, float):
         prune_ratios = [prune_ratios]
 
-    if baseline is None:
-        baseline = metric(ds.y, model.predict(ds.X))
-
-    for k, _, cond in subset_search(
-            model, ds, subset_ratio, subset_attempts, performance_drop_ratio=performance_drop_ratio,
-            rank=rank, baseline=baseline):
-        if not cond:
-            continue
+    for k, _ in subset_search(
+            model, ds, subset_ratio, subset_attempts, rank=rank):
+        tmp = ds.filter_features(k, default=0)
         for ratio in prune_ratios:
             pruned = prune_algorithm(model, ratio, *args, **kwargs)
-            score = metric(ds.y, pruned.predict(ds.X))
-            is_accepted = performance_drop_ratio is None or (score >= (1 - performance_drop_ratio) * baseline).item()
-            if not is_accepted:
-                continue
+            score = compute_metric_percategory(tmp.y, pruned.predict(tmp.X), tmp._y, scorer=metric)
             yield k, score, ratio

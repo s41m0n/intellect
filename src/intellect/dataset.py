@@ -28,6 +28,7 @@ class FeatureAvailability(Enum):
     none = 0
     oracle = 1
     bilateral = 2
+    client = 3  # unused, why should I have features in the client but not in the server?
 
 
 class InputForLearn(Enum):
@@ -74,7 +75,7 @@ class Dataset:
         else:
             self.y = label
         if isinstance(label_type, str):
-            if label_type == label:
+            if isinstance(label, str) and label_type == label:
                 self._y = self.y.copy(deep=True)
             else:
                 self._y = self.X.pop(label_type)
@@ -469,7 +470,7 @@ def cols_to_categories(df: pd.DataFrame, label_col='Label') -> pd.DataFrame:
     return df
 
 
-def load_dataframes(files: list[str], only_labels_str=None) -> dict[str, pd.DataFrame]:
+def load_dataframes(files: list[str], maxlines=None, only_labels_str=None) -> dict[str, pd.DataFrame]:
     """Function to load data dataframes from list of files
 
     Args:
@@ -482,7 +483,7 @@ def load_dataframes(files: list[str], only_labels_str=None) -> dict[str, pd.Data
     """
     return {x: load(x, skipinitialspace=True,
                     index_col=0 if not only_labels_str else None,
-                    usecols=[only_labels_str] if only_labels_str else None)
+                    usecols=[only_labels_str] if only_labels_str else None, nrows=maxlines)
             for x in files}
 
 

@@ -46,7 +46,8 @@ def sparsity(model: BaseEnhancedMlp, only_prunable: bool = True) -> tuple[float,
     return np.mean(single), single
 
 
-def globally_unstructured_connections_l1(model: BaseEnhancedMlp, prune_ratio: float) -> BaseEnhancedMlp:
+def globally_unstructured_connections_l1(
+        model: BaseEnhancedMlp, prune_ratio: float, only_prunable=True) -> BaseEnhancedMlp:
     """Function to prune CONNECTION-UNSTRUCTURED with L1 norm
 
     Args:
@@ -59,21 +60,22 @@ def globally_unstructured_connections_l1(model: BaseEnhancedMlp, prune_ratio: fl
     check_is_fitted(model, msg='Model not fitted, fit before pruning')
     model = model.clone(init=False)
     model.prune_masks = [np.ones_like(k) for k in model.coefs_]
-    all_weights = np.concatenate([np.asarray(c).reshape(-1) for c in model.coefs_], axis=0)
-    # TODO: fix only_prunable
+    pruned_idx = model.prunable if only_prunable else list(range(len(model.coefs_)))
+    all_weights = np.concatenate([np.asarray(model.coefs_[i]).reshape(-1) for i in pruned_idx], axis=0)
     k = round(len(all_weights) * prune_ratio)
     all_weights = np.absolute(all_weights)
     idx = all_weights.argsort()[:k]
     mask = np.ones_like(all_weights)
     mask[idx] = 0
     pointer = 0
-    for i, v in enumerate(model.coefs_):
-        num_param = v.size
-        model.prune_masks[i] = mask[pointer: pointer + num_param].reshape(v.shape)
+    for i in pruned_idx:
+        num_param = model.coefs_[i].size
+        model.prune_masks[i] = mask[pointer: pointer + num_param].reshape(model.coefs_[i].shape)
         pointer += num_param
     return model
 
-def globally_unstructured_connections_random(model: BaseEnhancedMlp, prune_ratio: float) -> BaseEnhancedMlp:
+def globally_unstructured_connections_random(
+        model: BaseEnhancedMlp, prune_ratio: float, only_prunable: True) -> BaseEnhancedMlp:
     """Function to prune CONNECTION-UNSTRUCTURED with L1 norm
 
     Args:
@@ -85,21 +87,22 @@ def globally_unstructured_connections_random(model: BaseEnhancedMlp, prune_ratio
     """
     check_is_fitted(model, msg='Model not fitted, fit before pruning')
     model = model.clone(init=False)
+    pruned_idx = model.prunable if only_prunable else list(range(len(model.coefs_)))
     model.prune_masks = [np.ones_like(k) for k in model.coefs_]
-    flat_length = sum(len(np.asarray(c).reshape(-1)) for c in model.coefs_)
+    flat_length = sum(len(np.asarray(model.coefs_[i]).reshape(-1)) for i in pruned_idx)
     k = round(flat_length * prune_ratio)
-    # TODO: fix only_prunable
     idx = np.random.choice(flat_length, k, replace=False)
     mask = np.ones(flat_length)
     mask[idx] = 0
     pointer = 0
-    for i, v in enumerate(model.coefs_):
-        num_param = v.size
-        model.prune_masks[i] = mask[pointer: pointer + num_param].reshape(v.shape)
+    for i in idx:
+        num_param = model.coefs_[i].size
+        model.prune_masks[i] = mask[pointer: pointer + num_param].reshape(model.coefs_[i].shape)
         pointer += num_param
     return model
 
-def globally_neurons_l1(model: BaseEnhancedMlp, prune_ratio: float, only_prunable: bool = True) -> BaseEnhancedMlp:
+def globally_neurons_l1(
+        model: BaseEnhancedMlp, prune_ratio: float, only_prunable: bool = True, is_l1=True) -> BaseEnhancedMlp:
     """Function to prune CONNECTION-UNSTRUCTURED with L1 norm
 
     Args:
@@ -116,7 +119,10 @@ def globally_neurons_l1(model: BaseEnhancedMlp, prune_ratio: float, only_prunabl
     pruned_idx = model.prunable if only_prunable else list(range(len(model.coefs_)))
     for i in pruned_idx:
         for n_neuron in range(model.coefs_[i].shape[1]):
-            all_weights.append(np.absolute(model.coefs_[i][:, n_neuron]).sum())
+            if is_l1:
+                all_weights.append(np.absolute(model.coefs_[i][:, n_neuron]).sum())
+            else:
+                all_weights.append(np.sqrt((model.coefs_[i][:, n_neuron] ** 2).sum()))
     k = round(len(all_weights) * prune_ratio)
     idx = np.array(all_weights).argsort()[:k]
     prev = 0
@@ -126,3 +132,7 @@ def globally_neurons_l1(model: BaseEnhancedMlp, prune_ratio: float, only_prunabl
                 model.prune_masks[i][:, n_neuron] = 0.
         prev += model.prune_masks[i].shape[1]
     return model
+
+def globally_neurons_l2(
+        model: BaseEnhancedMlp, prune_ratio: float, only_prunable: bool = True) -> BaseEnhancedMlp:
+    return globally_neurons_l1(model, prune_ratio, only_prunable, is_l1=False)

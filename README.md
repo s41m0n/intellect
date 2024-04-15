@@ -23,16 +23,16 @@ The project's focus is on leveraging technology and integrated networks to enabl
 
 Publications:
 
-1. [BigData23](./examples/bigdata_2023/): `S. Magnani, S. Braghin, A. Rawat, R. Doriguzzi-Corin, M. Purcell and D. Siracusa, "Pruning Federated Learning Models for Anomaly Detection in Resource-Constrained Environments," 2023 IEEE International Conference on Big Data (BigData), Sorrento, Italy, 2023, pp. 3274-3283, doi: 10.1109/BigData59044.2023.10386446`
-1. [NetSoft24 (Ongoing)](./examples/netsoft_2024/)
-1. [Computer & Security (Ongoing)](./examples/computer_security_2024/)
+1. [BigData2023](./examples/bigdata_2023/): `S. Magnani, S. Braghin, A. Rawat, R. Doriguzzi-Corin, M. Purcell and D. Siracusa, "Pruning Federated Learning Models for Anomaly Detection in Resource-Constrained Environments," 2023 IEEE International Conference on Big Data (BigData), Sorrento, Italy, 2023, pp. 3274-3283, doi: 10.1109/BigData59044.2023.10386446`
+1. [NetSoft2024 (Ongoing)](./examples/netsoft_2024/)
+1. [Computer&Security2024 (Ongoing)](./examples/computer_security_2024/)
 
 ## Acknowledgements
 
-* prof. Domenico Siracusa, my PhD supervisor and co-advisor and head of the *RISING* research unit at *Fondazione Bruno Kessler*.
-* @doriguzzi, my PhD co-advisor from the *RISING* research unit at *Fondazione Bruno Kessler*.
-* @stefano81, my mentor from the *Security and Privacy* unit at *IBM Research Europe*.
-* @ambrishrawat, advisor and collaborator from the *Security and Privacy* unit at *IBM Research Europe*.
+* Domenico Siracusa, my PhD supervisor and co-advisor and head of the *RISING* research unit at *Fondazione Bruno Kessler*.
+* Roberto Doriguzzi-Corin, my PhD co-advisor from the *RISING* research unit at *Fondazione Bruno Kessler*.
+* Stefano Braghin, my mentor from the *Security and Privacy* unit at *IBM Research Europe*.
+* Ambrish Rawat, advisor and collaborator from the *Security and Privacy* unit at *IBM Research Europe*.
 * Liubov Nedoshivina, collaborator  from the *Security and Privacy* unit at *IBM Research Europe*.
-* @mkpurcell, head of the *Security and Privacy* unit at *IBM Research Europe*.
-* @seshutir, collaborator from the *Interactive AI* unit at *IBM Research Europe*.
+* Mark Purcell, head of the *Security and Privacy* unit at *IBM Research Europe*.
+* Seshu Tirupathi, collaborator from the *Interactive AI* unit at *IBM Research Europe*.
