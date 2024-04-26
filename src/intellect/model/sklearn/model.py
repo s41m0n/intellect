@@ -204,11 +204,7 @@ class BaseEnhancedMlp(BaseMultilayerPerceptron, BaseModel):
         self.prune_masks = other.prune_masks
 
     def learn(self, X, y, *args, **kwargs):
-        try:
-            self.partial_fit(X, y, *args, **kwargs)
-        except Exception:
-            print(X.shape, y.shape)
-            raise RuntimeError()
+        self.partial_fit(X, y, *args, **kwargs)
 
     def learn_knowledge_distillation(self, inputs, oracle_proba, true_labels,
                                      *args, alpha: float = 1., **kwargs):

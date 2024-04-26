@@ -46,7 +46,7 @@ class ContinuouLearningAlgorithm(Enum):
 
 
 class Dataset:
-    """_summary_
+    """Class representing a Dataset throughout the methodology.
 
     Args:
         file (str, optional): name of the file to be loaded. Defaults to None.

@@ -11,70 +11,6 @@ import pandas as pd
 from river import metrics
 from sklearn.metrics import accuracy_score
 
-from .dataset import Dataset
-from .model.base import BaseModel
-
-
-def knowledge_loss_gain_score(df: pd.DataFrame, eval_after, eval_before, seen_categories=None,
-                              func_weights: tuple[float] = None, ignore_categories: list[str] = None) -> pd.Series:
-    """Function to measure with different indicators the knowledge loss/gain with respect to
-    a baseline scenario, also provided in the dataframe.
-
-    Args:
-        df (pd.DataFrame): dataframe with data to be compared
-        func_weights (tuple[float], optional): list of weights to assign to each
-            indicator. Defaults to None.
-        ignore_categories (list[str], Optinal): list of optional categories to exclude
-            during the computation of the metrics. Default to None.
-
-    Returns:
-        pd.Series: a series containing all the indicators and the final evaluation function score.
-    """
-    if ignore_categories is None:
-        ignore_categories = []
-    df = df[df.columns.difference(ignore_categories + ['Global'])]
-
-    if func_weights is None:
-        func_weights = [0.25] * 4
-
-    df = df[df.columns.difference(['Global'])]
-    if seen_categories is None:
-        seen_categories = df.columns.values
-
-    seen = df[df.columns.intersection(seen_categories)].columns.values
-    unseen = df[df.columns.difference(seen_categories)].columns.values
-
-    seen_proportions = pd.Series([1/len(seen)]*len(seen), index=seen)
-    if unseen.size:
-        unseen_proportions = pd.Series([1/len(unseen)]*len(unseen), index=unseen)
-
-    def f(after, before):
-        diff = df.loc[after] - df.loc[before]
-        diff_seen = diff[seen]
-        diff_unseen = diff[unseen]
-
-        loss_seen = diff_seen[diff_seen < 0]
-        loss_seen = (loss_seen*seen_proportions).sum()
-        gain_seen = diff_seen[diff_seen > 0]
-        gain_seen = (gain_seen*seen_proportions).sum()
-
-        loss_unseen = gain_unseen = 0
-        if unseen.size:
-            loss_unseen = diff_unseen[diff_unseen < 0]
-            loss_unseen = (loss_unseen*unseen_proportions).sum()
-            gain_unseen = diff_unseen[diff_unseen > 0]
-            gain_unseen = (gain_unseen*unseen_proportions).sum()
-        else:
-            to_add = func_weights[2] / 2 + func_weights[3] / 2
-            func_weights[2] = func_weights[3] = 0.
-            func_weights[0] += to_add
-            func_weights[1] += to_add
-
-        factors = [loss_seen, gain_seen, loss_unseen, gain_unseen]
-
-        return pd.Series([sum(factors[i] * func_weights[i] for i in range(len(factors)))] + factors,
-                         index=['Func', 'Loss Seen', 'Gain Seen', 'Loss Unseen', 'Gain Unseen'])
-    return f(eval_after, eval_before)
 
 def safe_division(dividend: Number, divisor: Number) -> float:
     """Perform safe division between two numbers, returning
@@ -90,27 +26,6 @@ def safe_division(dividend: Number, divisor: Number) -> float:
     if divisor == 0:
         return 0
     return dividend / divisor
-
-
-def compute_metric_percategory_on_datasets(
-        model: BaseModel, scorer: Callable, datasets: list[Dataset], names: list[str]) -> pd.DataFrame:
-    """Function to compute the score metric on each provided dataset.
-
-    Args:
-        model (BaseModel): the model used for prediction
-        scorer (Callable): the evaluation metric
-        datasets (list[Dataset]): the list of datasets to be tested
-        names (list[str]): the name of the tested datasets
-
-    Returns:
-        pd.DataFrame: a pandas DataFrame containing the scores for each category (columns) and dataset (rows)
-    """
-    df_percategory = pd.DataFrame()
-    for ds, name in zip(datasets, names):
-        y_pred_tmp = model.predict(ds.X)
-        tmp_percategory = compute_metric_percategory(ds.y.values, y_pred_tmp, ds._y, scorer=scorer)
-        df_percategory = pd.concat((df_percategory, pd.DataFrame(tmp_percategory, index=[name])))
-    return df_percategory
 
 
 def compute_metric_percategory(

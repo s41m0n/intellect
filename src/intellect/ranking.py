@@ -188,7 +188,7 @@ def sequential_backward_elimination(
 
 def subset_search(
         model: BaseModel, ds: Dataset, ratio: float, attempts: int,
-        rank: dict[str, float] = None, metric: Callable = accuracy_score, baseline: float = None,
+        rank: dict[str, float] = None, metric: Callable = accuracy_score,
         stuck_guard: int = 1000, with_score=True) -> Iterator[tuple[list[str], float]]:
     """Function to perform only subset search given a classifier.
 
